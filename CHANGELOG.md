@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **PortAudio Device-Switch Recovery (macOS/AirPods)**: Added recovery for recoverable PortAudio backend panics when the output device changes (for example, AirPods connect/switch events), reducing playback interruptions and preventing app crashes.
+
 ## [0.37.0] - 2026-02-27
 
 ### Added
