@@ -66,6 +66,9 @@ pub enum SyncMessage {
     action: PlaybackAction,
     from: Option<String>,
   },
+  SetControlMode {
+    control_mode: String,
+  },
   SetName {
     name: String,
   },
@@ -153,7 +156,7 @@ pub async fn connect_to_relay(
     url.query_pairs_mut().append_pair(k, v);
   }
 
-  info!("Connecting to party relay: {}", url);
+  info!("Connecting to party relay: action={}", action);
   let (ws_stream, _) = connect_async(url.as_str())
     .await
     .map_err(|e| format!("WebSocket connection failed: {}", e))?;

@@ -618,13 +618,15 @@ pub fn draw_party(f: &mut Frame<'_>, app: &App) {
 
   match &app.party_status {
     PartyStatus::Disconnected | PartyStatus::Connecting => {
-      if !app.party_input.is_empty() || app.party_input_idx > 0 || app.party_input.len() > 0 {
+      if !app.party_input.is_empty() || app.party_input_idx > 0 || !app.party_join_name.is_empty() {
         let code_str: String = app
           .party_input
           .iter()
           .filter(|c| c.is_alphanumeric())
           .map(|c| c.to_ascii_uppercase())
           .collect();
+        let name_str: String = app.party_join_name.iter().collect();
+        let trimmed_name = name_str.trim();
         lines.push(Line::from(Span::styled(
           "Enter 6-character party code:",
           style,
@@ -644,12 +646,37 @@ pub fn draw_party(f: &mut Frame<'_>, app: &App) {
         );
         lines.push(Line::from(Span::styled(display, active_style)));
         lines.push(Line::from(""));
-        if code_str.len() == 6 {
+
+        let name_display = if name_str.is_empty() {
+          "________________".to_string()
+        } else {
+          name_str.clone()
+        };
+        lines.push(Line::from(Span::styled("Enter your name:", style)));
+        lines.push(Line::from(Span::styled(
+          format!("  [ {} ]", name_display),
+          active_style,
+        )));
+        lines.push(Line::from(""));
+        if code_str.len() == 6 && !trimmed_name.is_empty() {
           lines.push(Line::from(Span::styled("Press Enter to join", hint_style)));
+        } else if code_str.len() == 6 {
+          lines.push(Line::from(Span::styled(
+            "Type a display name to continue",
+            hint_style,
+          )));
         } else {
           let char_count = format!("{}/6 characters", code_str.len());
           lines.push(Line::from(Span::styled(char_count, hint_style)));
         }
+        lines.push(Line::from(Span::styled(
+          format!("Name length: {}/32", trimmed_name.chars().count()),
+          hint_style,
+        )));
+        lines.push(Line::from(Span::styled(
+          "Code fills first, then name input",
+          hint_style,
+        )));
         lines.push(Line::from(Span::styled("Esc to cancel", hint_style)));
       } else {
         lines.push(Line::from(Span::styled("Listening Party", active_style)));

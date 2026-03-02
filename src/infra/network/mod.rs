@@ -127,7 +127,12 @@ pub enum IoEvent {
   /// Start hosting a listening party
   StartParty(sync::ControlMode),
   /// Join an existing listening party by code
-  JoinParty(String),
+  JoinParty {
+    code: String,
+    name: String,
+  },
+  /// Update the host control mode in the relay
+  SetPartyControlMode(sync::ControlMode),
   /// Leave the current listening party
   LeaveParty,
   /// Broadcast current playback state to party guests (host only)
@@ -409,8 +414,11 @@ impl Network {
       IoEvent::StartParty(control_mode) => {
         self.start_party(control_mode).await;
       }
-      IoEvent::JoinParty(code) => {
-        self.join_party(code).await;
+      IoEvent::JoinParty { code, name } => {
+        self.join_party(code, name).await;
+      }
+      IoEvent::SetPartyControlMode(control_mode) => {
+        self.set_party_control_mode(control_mode).await;
       }
       IoEvent::LeaveParty => {
         self.leave_party().await;
@@ -441,12 +449,33 @@ impl Network {
   }
 
   async fn refresh_authentication(&mut self) {
-    // Refresh token if needed
-    // This is implicitly handled by spotify_api_request_json_for which checks 401
-    // But sometimes we might want to force refresh or check validity.
-    // The original code called self.spotify.refresh_token().await.
-    if let Err(e) = self.spotify.refetch_token().await {
+    // refresh_token() calls refetch_token() AND stores the result in self.spotify.token.
+    // Using refetch_token() directly would return the new token without storing it.
+    if let Err(e) = self.spotify.refresh_token().await {
       self.handle_error(anyhow!(e)).await;
+      return;
+    }
+
+    // Update app.spotify_token_expiry so the main loop doesn't keep dispatching
+    // RefreshAuthentication on every tick after the original token expires.
+    let new_expiry = {
+      let token_lock = self
+        .spotify
+        .token
+        .lock()
+        .await
+        .expect("Failed to lock token");
+      token_lock.as_ref().map(|t| {
+        let secs = t.expires_in.num_seconds().max(0) as u64;
+        std::time::SystemTime::now()
+          .checked_add(Duration::from_secs(secs))
+          .unwrap_or_else(std::time::SystemTime::now)
+      })
+    };
+
+    if let Some(expiry) = new_expiry {
+      let mut app = self.app.lock().await;
+      app.spotify_token_expiry = expiry;
     }
   }
 
@@ -491,7 +520,7 @@ impl Network {
     }
   }
 
-  async fn join_party(&mut self, code: String) {
+  async fn join_party(&mut self, code: String, name: String) {
     {
       let mut app = self.app.lock().await;
       app.party_status = sync::PartyStatus::Connecting;
@@ -502,7 +531,7 @@ impl Network {
       app.user_config.behavior.relay_server_url.clone()
     };
 
-    match sync::connect_to_relay(&relay_url, "join", &[("code", &code)]).await {
+    match sync::connect_to_relay(&relay_url, "join", &[("code", &code), ("name", &name)]).await {
       Ok((conn, read)) => {
         let (incoming_tx, incoming_rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(sync::start_party_reader(read, incoming_tx));
@@ -577,6 +606,23 @@ impl Network {
     }
   }
 
+  async fn set_party_control_mode(&mut self, control_mode: sync::ControlMode) {
+    let control_mode = match control_mode {
+      sync::ControlMode::HostOnly => "host_only",
+      sync::ControlMode::SharedControl => "shared_control",
+    };
+
+    let msg = sync::SyncMessage::SetControlMode {
+      control_mode: control_mode.to_string(),
+    };
+
+    if let Some(conn) = &mut self.party_connection {
+      if let Err(e) = conn.send(&msg).await {
+        log::error!("Failed to send control mode update: {}", e);
+      }
+    }
+  }
+
   async fn party_playback_command(&mut self, action: sync::PlaybackAction) {
     let msg = sync::SyncMessage::PlaybackCommand { action, from: None };
     if let Some(conn) = &mut self.party_connection {
@@ -625,10 +671,21 @@ impl Network {
         sync::SyncMessage::GuestLeft { name } => {
           let mut app = self.app.lock().await;
           if let Some(session) = &mut app.party_session {
-            session.guests.retain(|g| g != &name);
+            if let Some(pos) = session.guests.iter().position(|g| g == &name) {
+              session.guests.remove(pos);
+            }
           }
           app.status_message = Some(format!("{} left the party", name));
           app.status_message_expires_at = Some(Instant::now() + Duration::from_secs(3));
+        }
+        sync::SyncMessage::SetControlMode { control_mode } => {
+          let mut app = self.app.lock().await;
+          if let Some(session) = &mut app.party_session {
+            session.control_mode = match control_mode.as_str() {
+              "shared_control" => sync::ControlMode::SharedControl,
+              _ => sync::ControlMode::HostOnly,
+            };
+          }
         }
         sync::SyncMessage::SyncState {
           track_uri,

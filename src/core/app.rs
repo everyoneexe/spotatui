@@ -659,6 +659,8 @@ pub struct App {
   pub party_input: Vec<char>,
   /// Cursor position in party code input
   pub party_input_idx: usize,
+  /// Input buffer for the required party guest name
+  pub party_join_name: Vec<char>,
   /// Pending track table selection to apply when new page loads
   pub pending_track_table_selection: Option<PendingTrackSelection>,
   /// Maps visible track table rows to source playlist item positions.
@@ -830,6 +832,7 @@ impl Default for App {
       party_session: None,
       party_input: Vec::new(),
       party_input_idx: 0,
+      party_join_name: Vec::new(),
       pending_track_table_selection: None,
       playlist_track_positions: None,
       playlist_picker_selected_index: 0,

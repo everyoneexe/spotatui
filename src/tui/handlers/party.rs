@@ -3,6 +3,9 @@ use crate::infra::network::sync::{ControlMode, PartyStatus};
 use crate::infra::network::IoEvent;
 use crate::tui::event::Key;
 
+const PARTY_CODE_LEN: usize = 6;
+const PARTY_NAME_MAX_LEN: usize = 32;
+
 pub fn handler(key: Key, app: &mut App) {
   match app.party_status {
     PartyStatus::Disconnected | PartyStatus::Connecting => {
@@ -18,7 +21,10 @@ pub fn handler(key: Key, app: &mut App) {
 }
 
 fn handle_disconnected_menu(key: Key, app: &mut App) {
-  if app.party_input.is_empty() && !app.party_status.eq(&PartyStatus::Connecting) {
+  if app.party_input.is_empty()
+    && app.party_join_name.is_empty()
+    && !app.party_status.eq(&PartyStatus::Connecting)
+  {
     match key {
       Key::Esc => {
         app.pop_navigation_stack();
@@ -30,6 +36,7 @@ fn handle_disconnected_menu(key: Key, app: &mut App) {
         // Switch to "Enter code" view (one space so the code-entry UI is shown).
         app.party_input = vec![' '];
         app.party_input_idx = 0;
+        app.party_join_name.clear();
       }
       Key::Enter => {
         app.dispatch(IoEvent::StartParty(ControlMode::HostOnly));
@@ -45,11 +52,16 @@ fn code_alphanumeric_len(party_input: &[char]) -> usize {
   party_input.iter().filter(|c| c.is_alphanumeric()).count()
 }
 
+fn normalized_guest_name(guest_name: &[char]) -> String {
+  guest_name.iter().collect::<String>().trim().to_string()
+}
+
 fn handle_code_input(key: Key, app: &mut App) {
   match key {
     Key::Esc => {
       app.party_input.clear();
       app.party_input_idx = 0;
+      app.party_join_name.clear();
     }
     Key::Enter => {
       let code: String = app
@@ -58,23 +70,34 @@ fn handle_code_input(key: Key, app: &mut App) {
         .filter(|c| c.is_alphanumeric())
         .map(|c| c.to_ascii_uppercase())
         .collect();
-      if code.len() == 6 {
-        app.dispatch(IoEvent::JoinParty(code));
+      let name = normalized_guest_name(&app.party_join_name);
+      if code.len() == PARTY_CODE_LEN && !name.is_empty() {
+        app.dispatch(IoEvent::JoinParty { code, name });
         app.party_input.clear();
         app.party_input_idx = 0;
+        app.party_join_name.clear();
       }
     }
     Key::Backspace => {
-      if app.party_input_idx > 0 {
+      if !app.party_join_name.is_empty() {
+        app.party_join_name.pop();
+      } else if app.party_input_idx > 0 {
         app.party_input_idx -= 1;
         app.party_input.remove(app.party_input_idx);
       }
     }
-    Key::Char(c) if c.is_alphanumeric() && code_alphanumeric_len(&app.party_input) < 6 => {
-      app
-        .party_input
-        .insert(app.party_input_idx, c.to_ascii_uppercase());
-      app.party_input_idx += 1;
+    Key::Char(c) => {
+      if c.is_alphanumeric() && code_alphanumeric_len(&app.party_input) < PARTY_CODE_LEN {
+        app
+          .party_input
+          .insert(app.party_input_idx, c.to_ascii_uppercase());
+        app.party_input_idx += 1;
+      } else if code_alphanumeric_len(&app.party_input) == PARTY_CODE_LEN
+        && (c.is_ascii_graphic() || c == ' ')
+        && app.party_join_name.len() < PARTY_NAME_MAX_LEN
+      {
+        app.party_join_name.push(c);
+      }
     }
     _ => {}
   }
@@ -89,14 +112,19 @@ fn handle_hosting_menu(key: Key, app: &mut App) {
       app.dispatch(IoEvent::LeaveParty);
     }
     Key::Char('c') | Key::Char('C') => {
-      if let Some(session) = &app.party_session {
-        let new_mode = match session.control_mode {
+      let new_mode = if let Some(session) = &mut app.party_session {
+        let updated_mode = match session.control_mode {
           ControlMode::HostOnly => ControlMode::SharedControl,
           ControlMode::SharedControl => ControlMode::HostOnly,
         };
-        if let Some(session) = &mut app.party_session {
-          session.control_mode = new_mode;
-        }
+        session.control_mode = updated_mode.clone();
+        Some(updated_mode)
+      } else {
+        None
+      };
+
+      if let Some(updated_mode) = new_mode {
+        app.dispatch(IoEvent::SetPartyControlMode(updated_mode));
       }
     }
     _ => {}

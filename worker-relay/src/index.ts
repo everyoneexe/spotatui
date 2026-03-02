@@ -7,6 +7,8 @@ import { DurableObject } from "cloudflare:workers";
 
 const WS_PATH = "/ws";
 const CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_JOIN_ATTEMPTS = 10;
 const CODE_LENGTH = 6;
 const MAX_MESSAGE_SIZE = 4 * 1024;
 const MAX_PARTICIPANTS = 8;
@@ -22,14 +24,21 @@ function generateRoomCode(): string {
   return code;
 }
 
+function normalizeDisplayName(value: string | null, fallback: string): string {
+  const name = (value ?? "").trim().slice(0, 64);
+  return name.length > 0 ? name : fallback;
+}
+
 export interface Env {
   PARTY_ROOM: DurableObjectNamespace;
+  RATE_LIMIT_KV: KVNamespace;
 }
 
 interface Session {
   id: string;
   isHost: boolean;
   name: string;
+  ip: string;
 }
 
 export class PartyRoom extends DurableObject {
@@ -38,6 +47,7 @@ export class PartyRoom extends DurableObject {
   private roomCode: string = "";
   private hostName: string = "Host";
   private roomControlMode: string = "host_only";
+  private ipConnections: Map<string, { hostCount: number; guestCount: number }> = new Map();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -48,6 +58,7 @@ export class PartyRoom extends DurableObject {
     const roomCode = url.searchParams.get("room_code") ?? "";
     const isHost = url.searchParams.get("is_host") === "1";
     const controlMode = url.searchParams.get("control_mode") ?? "host_only";
+    const requestedName = normalizeDisplayName(url.searchParams.get("name"), "Guest");
 
     if (!roomCode) {
       return new Response("Missing room_code", { status: 400 });
@@ -64,11 +75,19 @@ export class PartyRoom extends DurableObject {
       this.roomControlMode = controlMode;
     }
 
+    const clientIp = request.headers.get("CF-Connecting-IP") ?? "unknown";
     const session: Session = {
       id: sessionId,
       isHost,
-      name: isHost ? "Host" : "Guest",
+      name: isHost ? "Host" : requestedName,
+      ip: clientIp,
     };
+
+    if (isHost && this.hostWs !== null && this.sessions.has(this.hostWs)) {
+      this.sendJson(server, { type: "error", message: "Room already has a host" });
+      server.close(1008, "Host exists");
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
     if (!isHost && !this.hostWs) {
       this.sendJson(server, { type: "error", message: "Room not found" });
@@ -82,11 +101,27 @@ export class PartyRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
 
+    const ipEntry = this.ipConnections.get(clientIp) ?? { hostCount: 0, guestCount: 0 };
+    if (isHost && ipEntry.hostCount >= 1) {
+      this.sendJson(server, { type: "error", message: "Host already connected from this IP" });
+      server.close(1008, "Host already connected from this IP");
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    if (!isHost && ipEntry.guestCount >= 2) {
+      this.sendJson(server, { type: "error", message: "Too many connections from your IP" });
+      server.close(1008, "Too many connections from your IP");
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     this.sessions.set(server, session);
     if (isHost) {
+      ipEntry.hostCount++;
       this.hostWs = server;
       this.scheduleInactivityAlarm();
+    } else {
+      ipEntry.guestCount++;
     }
+    this.ipConnections.set(clientIp, ipEntry);
 
     server.addEventListener("message", (event: MessageEvent) => {
       this.handleMessage(server, event.data);
@@ -139,13 +174,22 @@ export class PartyRoom extends DurableObject {
 
     switch (msg.type) {
       case "set_name": {
-        const name = typeof msg.name === "string" ? msg.name.slice(0, 64) : session.name;
+        const name =
+          typeof msg.name === "string"
+            ? normalizeDisplayName(msg.name, session.isHost ? "Host" : "Guest")
+            : session.name;
         const prevName = session.name;
-        session.name = name || (session.isHost ? "Host" : "Guest");
+        session.name = name;
         if (!session.isHost && prevName !== session.name) {
           this.broadcastExcept(ws, { type: "guest_joined", name: session.name });
         }
         if (session.isHost) this.hostName = session.name;
+        break;
+      }
+      case "set_control_mode": {
+        if (!session.isHost) break;
+        this.roomControlMode = msg.control_mode === "shared_control" ? "shared_control" : "host_only";
+        this.broadcastAll({ type: "set_control_mode", control_mode: this.roomControlMode });
         break;
       }
       case "sync_state": {
@@ -172,7 +216,7 @@ export class PartyRoom extends DurableObject {
     const raw = JSON.stringify(msg);
     if (raw.length > MAX_MESSAGE_SIZE) return;
     this.sessions.forEach((_, ws) => {
-      if (ws !== exclude && ws.readyState === WebSocket.READY_STATE_OPEN) {
+      if (ws !== exclude && ws.readyState === WebSocket.OPEN) {
         ws.send(raw);
       }
     });
@@ -181,6 +225,18 @@ export class PartyRoom extends DurableObject {
   private handleClose(ws: WebSocket): void {
     const session = this.sessions.get(ws);
     this.sessions.delete(ws);
+    if (session) {
+      const entry = this.ipConnections.get(session.ip);
+      if (entry) {
+        if (session.isHost) entry.hostCount--;
+        else entry.guestCount--;
+        if (entry.hostCount <= 0 && entry.guestCount <= 0) {
+          this.ipConnections.delete(session.ip);
+        } else {
+          this.ipConnections.set(session.ip, entry);
+        }
+      }
+    }
     if (ws === this.hostWs) {
       this.hostWs = null;
       this.broadcastAll({ type: "room_closed" });
@@ -206,7 +262,7 @@ export class PartyRoom extends DurableObject {
     const raw = JSON.stringify(msg);
     if (raw.length > MAX_MESSAGE_SIZE) return;
     this.sessions.forEach((_, ws) => {
-      if (ws.readyState === WebSocket.READY_STATE_OPEN) {
+      if (ws.readyState === WebSocket.OPEN) {
         ws.send(raw);
       }
     });
@@ -258,13 +314,30 @@ export default {
       doUrl.searchParams.set("control_mode", controlMode);
     } else if (action === "join") {
       const code = url.searchParams.get("code");
+      const guestName = normalizeDisplayName(url.searchParams.get("name"), "");
       if (!code || code.length !== CODE_LENGTH || !/^[A-Z0-9]+$/i.test(code)) {
         return new Response("Invalid or missing room code", { status: 400 });
       }
+      if (!guestName) {
+        return new Response("Missing guest name", { status: 400 });
+      }
       roomCode = code.toUpperCase();
+
+      const clientIp = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      const rateLimitKey = `ratelimit:${clientIp}`;
+      const countStr = await env.RATE_LIMIT_KV.get(rateLimitKey);
+      const count = countStr !== null ? parseInt(countStr, 10) : 0;
+      if (count >= MAX_JOIN_ATTEMPTS) {
+        return new Response("Too many attempts", { status: 429 });
+      }
+      await env.RATE_LIMIT_KV.put(rateLimitKey, String(count + 1), {
+        expirationTtl: Math.ceil(RATE_LIMIT_WINDOW_MS / 1000),
+      });
+
       doUrl = new URL(request.url);
       doUrl.searchParams.set("room_code", roomCode);
       doUrl.searchParams.set("is_host", "0");
+      doUrl.searchParams.set("name", guestName);
     } else {
       return new Response("Missing action=create or action=join", { status: 400 });
     }
