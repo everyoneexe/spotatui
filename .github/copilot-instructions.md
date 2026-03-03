@@ -1,111 +1,98 @@
-# Spotatui Copilot Instructions
+# Copilot Instructions for spotatui
 
-A Rust terminal UI Spotify client using ratatui (TUI framework) and rspotify (Spotify Web API).
+## Build & Run
 
-## Architecture Overview
+```bash
+# Full build (native streaming + audio visualization)
+cargo run
 
-```
-main.rs          → Entry point, auth flow, UI/network thread split
-app.rs           → Central state (`App` struct), navigation, dispatch system
-network.rs       → Async Spotify API calls via `IoEvent` enum
-handlers/        → Keyboard input handlers per UI block
-ui/              → Rendering logic using ratatui widgets
-event/           → Crossterm event polling, custom `Key` enum
-cli/             → Headless command-line interface
+# Slim build — no librespot/audio; fastest iteration, used by CI
+cargo run --no-default-features --features telemetry
 ```
 
-**Core Pattern**: UI runs on main thread, network operations spawn on a separate tokio task. Communication uses `std::sync::mpsc` channels with `IoEvent` enum for requests, `Arc<Mutex<App>>` for shared state updates.
+## CI Checks (run before opening a PR)
+
+```bash
+cargo fmt --all
+cargo clippy --no-default-features --features telemetry -- -D warnings
+cargo test --no-default-features --features telemetry
+```
+
+## Run a Single Test
+
+```bash
+cargo test --no-default-features --features telemetry <test_name>
+# Example:
+cargo test --no-default-features --features telemetry global_shift_w_adds_current_track_from_anywhere
+```
+
+## Architecture
+
+The codebase is split into four top-level modules under `src/`:
+
+| Module | Role |
+|--------|------|
+| `core/` | Business logic & centralized state (`App`, `UserConfig`, `SortState`) |
+| `infra/` | Infrastructure: Spotify API (`network/`), audio capture/viz (`audio/`), native streaming (`player/`), OS integrations (Discord RPC, MPRIS, macOS media keys) |
+| `tui/` | Terminal UI: rendering (`ui/`), per-screen input handlers (`handlers/`), event loop (`event/`) |
+| `cli/` | CLI argument parsing and self-update logic |
+
+### Data flow
+
+```
+Key event → tui/event/ → tui/handlers/handle_app()
+                           ↓ global keybindings
+                           ↓ handle_block_events() dispatches to per-screen handler
+                           ↓ app.dispatch(IoEvent::…) sends async work
+                        infra/network/ fetches from Spotify API
+                           ↓ mutates App state
+                        tui/ui/ re-renders from App state
+```
+
+### Navigation / routing
+
+`App` holds a navigation stack of `Route` values. Each `Route` contains:
+- `RouteId` — which screen to render (Home, Search, Artist, AlbumTracks, Queue, Settings, Party, …)
+- `ActiveBlock` — which block currently has keyboard focus
+- `HoveredBlock` — which block the cursor is hovering
+
+Use `app.push_navigation_stack(RouteId::X, ActiveBlock::X)` to navigate and `app.pop_navigation_stack()` to go back.
 
 ## Key Conventions
 
-### Handler Pattern (see `handlers/`)
+### Adding a new screen / feature
 
-Each `ActiveBlock` has a corresponding handler file with a `handler(key: Key, app: &mut App)` function:
+1. Add a variant to `RouteId` and `ActiveBlock` in `src/core/app.rs`.
+2. Create `src/tui/handlers/<screen>.rs` with a `pub fn handler(key: Key, app: &mut App)` function and register it in `src/tui/handlers/mod.rs` (`handle_block_events` match arm).
+3. Create `src/tui/ui/<screen>.rs` with a draw function and wire it into `src/tui/ui/mod.rs`.
+4. Add any new Spotify API calls as `IoEvent` variants in `src/infra/network/mod.rs` and implement them in the appropriate `src/infra/network/<concern>.rs` file.
 
-```rust
-pub fn handler(key: Key, app: &mut App) {
-  match key {
-    k if common_key_events::down_event(k) => { /* ... */ }
-    k if common_key_events::up_event(k) => { /* ... */ }
-    Key::Enter => { /* action */ }
-    _ => {}
-  }
-}
-```
+### Dispatching network calls
 
-Use `common_key_events` for navigation (j/k/h/l + arrows). Reserved keys (h/j/k/l, H/M/L, arrows, Enter, Backspace) cannot be remapped.
+Call `app.dispatch(IoEvent::SomeVariant)` from a handler — never call async Spotify code directly from handlers or UI code.
 
-### Dispatching Network Requests
+### Paginated results
 
-Never call Spotify API directly from handlers. Use the dispatch pattern:
+Use `ScrollableResultPages<T>` (defined in `src/core/app.rs`) for any data that comes back page-by-page from the Spotify API.
 
-```rust
-app.dispatch(IoEvent::GetPlaylists);
-app.dispatch(IoEvent::StartPlayback(context, uris, offset));
-```
+### Status messages
 
-Add new operations to `IoEvent` enum in `network.rs`, implement in `handle_network_event()`.
+Show feedback to the user with `app.show_status_message(msg, ttl_ms)`. Do not write directly to `app.status_message`.
 
-### Navigation Stack
+### Dialog state cleanup
 
-Use `push_navigation_stack()` / `pop_navigation_stack()` for view changes:
+When closing a dialog, always call `app.clear_playlist_track_dialog_state()` alongside `app.dialog = None` and `app.confirm = false`.
 
-```rust
-app.push_navigation_stack(RouteId::Artist, ActiveBlock::ArtistBlock);
-app.set_current_route_state(Some(ActiveBlock::Input), Some(ActiveBlock::Input));
-```
+### Error handling
 
-### Configuration
+Use `anyhow::Result<T>` and the `?` operator throughout. Do not use `unwrap()` in non-test code.
 
-- **Auth config**: `~/.config/spotatui/client.yml` (client_id, client_secret, port)
-- **User config**: `~/.config/spotatui/config.yml` (theme, keybindings, behavior)
-- Parse configs in `config.rs` (auth) and `user_config.rs` (UI settings)
+### User-configurable keybindings
 
-## Build & Development
+Always check `app.user_config.keys.<action>` instead of hard-coding key literals when matching global actions (see `handle_app` in `src/tui/handlers/mod.rs`).
 
-```bash
-cargo run --release           # Run with optimizations
-cargo build                   # Debug build
-cargo test                    # Run tests
-cargo fmt --all               # Format (2-space indent, see rustfmt.toml)
-cargo clippy                  # Lint
-```
+### Feature flags
 
-**CI Requirements**: Code must pass `cargo fmt --check`, `cargo clippy`, and `cargo test`.
-
-## Adding Features
-
-### New UI View
-
-1. Add variant to `ActiveBlock` and `RouteId` enums in `app.rs`
-2. Create handler in `handlers/new_view.rs`, register in `handlers/mod.rs`
-3. Add rendering in `ui/mod.rs` `draw_main_layout()` or create new draw function
-4. Wire navigation via `push_navigation_stack()`
-
-### New Spotify API Call
-
-1. Add variant to `IoEvent` enum in `network.rs`
-2. Implement handler in `Network::handle_network_event()`
-3. Update `App` state with results using `self.app.lock().await`
-4. Dispatch from handler: `app.dispatch(IoEvent::NewOperation(params))`
-
-### New Keybinding
-
-1. Add field to `KeyBindingsString` in `user_config.rs`
-2. Add to `KeyBindings` struct with default in `impl Default`
-3. Handle in `handlers/mod.rs` `handle_app()` for global keys, or in specific handler
-
-## Rspotify ID Handling
-
-Spotify IDs require static lifetimes for async dispatch. Use conversion pattern:
-
-```rust
-let playlist_id = PlaylistId::from_id(id_string).into_static();
-app.dispatch(IoEvent::GetPlaylistItems(playlist_id, offset));
-```
-
-## UI/UX Notes
-
-- Theme colors support RGB strings (`"255, 255, 255"`) or terminal color names
-- Icons (`liked_icon`, `shuffle_icon`) require nerd fonts for proper display
-- Tick rate affects audio visualization smoothness vs CPU usage
+- Default features include `streaming` (librespot) and audio visualization backends.
+- `--no-default-features --features telemetry` is the minimal build used for CI and fast iteration.
+- Platform-specific audio backends (ALSA, PipeWire, PortAudio, Rodio) are gated behind their own features.
