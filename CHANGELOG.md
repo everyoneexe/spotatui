@@ -1,9 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.37.1] - 2026-03-03
 
 ### Added
 
+- **Resizable Sidebar and Playbar**: Added user-configurable layout dimensions with runtime keyboard shortcuts ([#138](https://github.com/LargeModGames/spotatui/pull/138)).
+  - New config options: `behavior.sidebar_width_percent`, `behavior.playbar_height_rows`, `behavior.library_height_percent`.
+  - Keyboard shortcuts to resize at runtime: `{`/`}` (sidebar width), `(`/`)` (playbar height), `|` (library/playlists split).
+  - New `src/core/layout.rs` module with layout constraint utilities and tests.
+  - Help menu updated to document all new layout adjustment shortcuts.
 - **Listening Party Mode (Host/Join)**: Added an in-app listening party flow with a relay-backed session model, including host/join states, party status in the playbar, and a dedicated party popup (`Ctrl+p` by default).
 - **Party Guest Name and Room Code UX**: Added required guest name input and 6-character code entry for joining parties, plus host-side guest list and control-mode display.
 - **Queue View Route**: Added a dedicated queue screen with selectable entries and a configurable keybinding to open it (`Q` by default).
@@ -17,10 +22,15 @@
 
 ### Fixed
 
+- **macOS Now Playing Album Artwork**: macOS Control Center / Now Playing now correctly shows album and episode cover art ([#136](https://github.com/LargeModGames/spotatui/pull/136)).
 - **Stop-After-Current-Track Behavior**: Native streaming playback now correctly pauses after a natural track transition when `stop_after_current_track` is enabled, instead of auto-continuing.
 - **PortAudio Device-Switch Recovery (macOS/AirPods)**: Added recovery for recoverable PortAudio backend panics when the output device changes (for example, AirPods connect/switch events), reducing playback interruptions and preventing app crashes.
 - **Mac Tahoe 26.2 Build Failure (macOS Media Activation Policy)**: Fixed a macOS Tahoe 26.2 build break by correcting Objective-C FFI types for `NSApplication setActivationPolicy:` (`BOOL` return and `NSInteger` argument).
 - **Settings Shortcut Reliability on macOS Terminals**: Added terminal keyboard-capability detection and runtime fallback handling for `Ctrl+,` when terminal/tmux stacks drop punctuation modifiers; spotatui now applies a session fallback to `Alt+,`, prompts before persisting to `config.yml`, and displays effective shortcuts in Help/Settings UI.
+
+### Internal
+
+- **Dependency Maintenance**: Bumped Rust minor dependency updates ([#130](https://github.com/LargeModGames/spotatui/pull/130)) and CI Actions bumps ([#129](https://github.com/LargeModGames/spotatui/pull/129)).
 
 ## [0.37.0] - 2026-02-27
 
