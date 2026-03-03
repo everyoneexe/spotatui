@@ -33,6 +33,7 @@ mod tui;
 use crate::core::app::{self, ActiveBlock, App, RouteId};
 use crate::core::config::{ClientConfig, NCSPOT_CLIENT_ID};
 use crate::core::user_config::{UserConfig, UserConfigPaths};
+#[cfg(any(feature = "audio-viz", feature = "audio-viz-cpal"))]
 use crate::infra::audio;
 #[cfg(feature = "discord-rpc")]
 use crate::infra::discord_rpc;
@@ -55,9 +56,12 @@ use clap::{Arg, Command as ClapApp};
 use clap_complete::{generate, Shell};
 use crossterm::{
   cursor::MoveTo,
-  event::{DisableMouseCapture, EnableMouseCapture},
+  event::{
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+  },
   execute,
-  terminal::SetTitle,
+  terminal::{supports_keyboard_enhancement, SetTitle},
   ExecutableCommand,
 };
 use log::info;
@@ -66,19 +70,19 @@ use rspotify::{
   prelude::*,
   {AuthCodePkceSpotify, Config, Credentials, OAuth, Token},
 };
+#[cfg(feature = "streaming")]
+use std::time::{Duration, Instant};
 use std::{
   cmp::{max, min},
   fs,
   io::{self, stdout, Write},
   panic,
   path::{Path, PathBuf},
-  sync::{atomic::AtomicU64, Arc},
+  sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+  },
   time::SystemTime,
-};
-#[cfg(feature = "streaming")]
-use std::{
-  sync::atomic::Ordering,
-  time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
 
@@ -138,6 +142,18 @@ struct MprisMetadata {
 }
 #[cfg(feature = "mpris")]
 type MprisMetadataTuple = (String, Vec<String>, String, u32, Option<String>);
+
+#[cfg(all(feature = "macos-media", target_os = "macos"))]
+#[derive(Default, PartialEq)]
+struct MacosMetadata {
+  title: String,
+  artists: Vec<String>,
+  album: String,
+  duration_ms: u32,
+  art_url: Option<String>,
+}
+#[cfg(all(feature = "macos-media", target_os = "macos"))]
+type MacosMetadataTuple = (String, Vec<String>, String, u32, Option<String>);
 
 #[cfg(feature = "discord-rpc")]
 fn resolve_discord_app_id(user_config: &UserConfig) -> Option<String> {
@@ -252,6 +268,34 @@ fn get_mpris_metadata(app: &App) -> Option<MprisMetadataTuple> {
   }
 }
 
+#[cfg(all(feature = "macos-media", target_os = "macos"))]
+fn get_macos_metadata(app: &App) -> Option<MacosMetadataTuple> {
+  use crate::tui::ui::util::create_artist_string;
+  use rspotify::model::PlayableItem;
+
+  if let Some(context) = &app.current_playback_context {
+    let item = context.item.as_ref()?;
+    match item {
+      PlayableItem::Track(track) => Some((
+        track.name.clone(),
+        vec![create_artist_string(&track.artists)],
+        track.album.name.clone(),
+        track.duration.num_milliseconds() as u32,
+        track.album.images.first().map(|image| image.url.clone()),
+      )),
+      PlayableItem::Episode(episode) => Some((
+        episode.name.clone(),
+        vec![episode.show.name.clone()],
+        String::new(),
+        episode.duration.num_milliseconds() as u32,
+        episode.images.first().map(|image| image.url.clone()),
+      )),
+    }
+  } else {
+    None
+  }
+}
+
 #[cfg(feature = "discord-rpc")]
 fn update_discord_presence(
   manager: &discord_rpc::DiscordRpcManager,
@@ -318,6 +362,31 @@ fn update_mpris_metadata(
     if last_metadata.is_some() {
       *last_metadata = None;
     }
+  }
+}
+
+#[cfg(all(feature = "macos-media", target_os = "macos"))]
+fn update_macos_metadata(
+  manager: &macos_media::MacMediaManager,
+  last_metadata: &mut Option<MacosMetadata>,
+  app: &App,
+) {
+  if let Some((title, artists, album, duration_ms, art_url)) = get_macos_metadata(app) {
+    let new_metadata = MacosMetadata {
+      title: title.clone(),
+      artists: artists.clone(),
+      album: album.clone(),
+      duration_ms,
+      art_url: art_url.clone(),
+    };
+
+    // Only update if metadata changed to avoid repeated artwork fetches.
+    if last_metadata.as_ref() != Some(&new_metadata) {
+      manager.set_metadata(&title, &artists, &album, duration_ms, art_url);
+      *last_metadata = Some(new_metadata);
+    }
+  } else if last_metadata.is_some() {
+    *last_metadata = None;
   }
 }
 
@@ -594,6 +663,18 @@ fn setup_logging() -> anyhow::Result<()> {
 fn install_panic_hook() {
   let default_hook = panic::take_hook();
   panic::set_hook(Box::new(move |info| {
+    let is_portaudio_panic = info
+      .location()
+      .map(|location| location.file().contains("audio_backend/portaudio.rs"))
+      .unwrap_or(false);
+
+    if is_portaudio_panic {
+      eprintln!(
+        "Recoverable audio backend panic detected. Playback may pause while the output device changes."
+      );
+      return;
+    }
+
     ratatui::restore();
     let panic_log_path = dirs::home_dir().map(|home| {
       home
@@ -861,6 +942,7 @@ of the app. Beware that this comes at a CPU cost!",
   }
 
   let mut spotify = None;
+  #[cfg(feature = "streaming")]
   let mut selected_redirect_uri = client_config.get_redirect_uri();
   let mut last_auth_error = None;
 
@@ -883,7 +965,10 @@ of the app. Beware that this comes at a CPU cost!",
           info!("Using fallback client ID {}", client_id);
         }
         client_config.client_id = client_id.clone();
-        selected_redirect_uri = redirect_uri;
+        #[cfg(feature = "streaming")]
+        {
+          selected_redirect_uri = redirect_uri;
+        }
         spotify = Some(candidate);
         break;
       }
@@ -1177,6 +1262,25 @@ of the app. Beware that this comes at a CPU cost!",
           .await;
         });
       }
+    }
+
+    // Keep Now Playing metadata (including artwork URL from Web API playback state)
+    // synchronized with Control Center.
+    #[cfg(all(feature = "macos-media", target_os = "macos"))]
+    if let Some(ref macos_media) = macos_media_manager {
+      let macos_media_for_metadata = Arc::clone(macos_media);
+      let app_for_macos_metadata = Arc::clone(&app);
+      tokio::spawn(async move {
+        let mut last_metadata: Option<MacosMetadata> = None;
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+
+        loop {
+          interval.tick().await;
+          if let Ok(app) = app_for_macos_metadata.try_lock() {
+            update_macos_metadata(&macos_media_for_metadata, &mut last_metadata, &app);
+          }
+        }
+      });
     }
 
     // Clone MPRIS manager for player event handler
@@ -1720,7 +1824,13 @@ async fn handle_player_events(
         // Update macOS Now Playing metadata
         #[cfg(all(feature = "macos-media", target_os = "macos"))]
         if let Some(ref macos_media) = macos_media_manager {
-          macos_media.set_metadata(&audio_item.name, &artists, &album, audio_item.duration_ms);
+          macos_media.set_metadata(
+            &audio_item.name,
+            &artists,
+            &album,
+            audio_item.duration_ms,
+            None,
+          );
         }
 
         // Track metadata updates are critical for playbar correctness; do not drop
@@ -2015,6 +2125,26 @@ async fn start_ui(
   // Terminal initialization
   let mut terminal = ratatui::init();
   execute!(stdout(), EnableMouseCapture)?;
+  let keyboard_enhancement_supported = supports_keyboard_enhancement().unwrap_or(false);
+  let keyboard_enhancement_enabled = keyboard_enhancement_supported
+    && execute!(
+      stdout(),
+      PushKeyboardEnhancementFlags(
+        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+          | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+          | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+      )
+    )
+    .is_ok();
+  if keyboard_enhancement_enabled {
+    info!("enabled keyboard enhancement flags");
+  }
+  {
+    let mut app = app.lock().await;
+    app.terminal_input_caps.keyboard_enhancement_supported = keyboard_enhancement_supported;
+    app.terminal_input_caps.keyboard_enhancement_enabled = keyboard_enhancement_enabled;
+    app.terminal_input_caps.ctrl_punct_reliable = app::CapabilityState::Unknown;
+  }
 
   if user_config.behavior.set_window_title {
     execute!(stdout(), SetTitle("spt - spotatui"))?;
@@ -2309,7 +2439,7 @@ async fn start_ui(
         app.dispatch(IoEvent::FetchGlobalSongCount);
       }
       app.dispatch(IoEvent::FetchAnnouncements);
-      app.help_docs_size = ui::help::get_help_docs(&app.user_config.keys).len() as u32;
+      app.help_docs_size = ui::help::get_help_docs(&app).len() as u32;
 
       is_first_render = false;
     }
@@ -2334,6 +2464,9 @@ async fn start_ui(
   }
 
   execute!(stdout(), DisableMouseCapture)?;
+  if keyboard_enhancement_enabled {
+    let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+  }
   ratatui::restore();
 
   #[cfg(feature = "discord-rpc")]
@@ -2363,6 +2496,26 @@ async fn start_ui(
   // Terminal initialization
   let mut terminal = ratatui::init();
   execute!(stdout(), EnableMouseCapture)?;
+  let keyboard_enhancement_supported = supports_keyboard_enhancement().unwrap_or(false);
+  let keyboard_enhancement_enabled = keyboard_enhancement_supported
+    && execute!(
+      stdout(),
+      PushKeyboardEnhancementFlags(
+        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+          | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+          | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+      )
+    )
+    .is_ok();
+  if keyboard_enhancement_enabled {
+    info!("enabled keyboard enhancement flags");
+  }
+  {
+    let mut app = app.lock().await;
+    app.terminal_input_caps.keyboard_enhancement_supported = keyboard_enhancement_supported;
+    app.terminal_input_caps.keyboard_enhancement_enabled = keyboard_enhancement_enabled;
+    app.terminal_input_caps.ctrl_punct_reliable = app::CapabilityState::Unknown;
+  }
 
   if user_config.behavior.set_window_title {
     execute!(stdout(), SetTitle("spt - spotatui"))?;
@@ -2614,12 +2767,15 @@ async fn start_ui(
         app.dispatch(IoEvent::FetchGlobalSongCount);
       }
       app.dispatch(IoEvent::FetchAnnouncements);
-      app.help_docs_size = ui::help::get_help_docs(&app.user_config.keys).len() as u32;
+      app.help_docs_size = ui::help::get_help_docs(&app).len() as u32;
       is_first_render = false;
     }
   }
 
   execute!(stdout(), DisableMouseCapture)?;
+  if keyboard_enhancement_enabled {
+    let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+  }
   ratatui::restore();
 
   #[cfg(feature = "discord-rpc")]

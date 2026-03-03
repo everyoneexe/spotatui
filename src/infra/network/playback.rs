@@ -145,8 +145,6 @@ impl PlaybackNetwork for Network {
           let native_name = p.device_name().to_lowercase();
           c.device.name.to_lowercase() == native_name
         });
-        #[cfg(not(feature = "streaming"))]
-        let is_native_device = false;
 
         #[cfg(feature = "streaming")]
         if is_native_device && app.native_device_id.is_none() {

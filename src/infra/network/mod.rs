@@ -16,7 +16,9 @@ use rspotify::model::{
   album::SimplifiedAlbum,
   artist::FullArtist,
   enums::{Country, RepeatState},
-  idtypes::{AlbumId, ArtistId, EpisodeId, PlayContextId, PlayableId, PlaylistId, ShowId, TrackId, UserId},
+  idtypes::{
+    AlbumId, ArtistId, EpisodeId, PlayContextId, PlayableId, PlaylistId, ShowId, TrackId, UserId,
+  },
   show::SimplifiedShow,
   track::FullTrack,
 };
@@ -779,16 +781,15 @@ impl Network {
 
     // Track change takes priority
     if current_uri != track_uri && !track_uri.is_empty() {
-      let playable: Option<PlayableId<'static>> =
-        if let Ok(id) = TrackId::from_uri(&track_uri) {
-          let p: PlayableId<'_> = id.into();
-          Some(p.into_static())
-        } else if let Ok(id) = EpisodeId::from_uri(&track_uri) {
-          let p: PlayableId<'_> = id.into();
-          Some(p.into_static())
-        } else {
-          None
-        };
+      let playable: Option<PlayableId<'static>> = if let Ok(id) = TrackId::from_uri(&track_uri) {
+        let p: PlayableId<'_> = id.into();
+        Some(p.into_static())
+      } else if let Ok(id) = EpisodeId::from_uri(&track_uri) {
+        let p: PlayableId<'_> = id.into();
+        Some(p.into_static())
+      } else {
+        None
+      };
       if let Some(playable_id) = playable {
         self
           .start_playback(None, Some(vec![playable_id]), None)
@@ -845,16 +846,15 @@ impl Network {
         self.seek(position_ms as u32).await;
       }
       sync::PlaybackAction::PlayTrack { uri } => {
-        let playable: Option<PlayableId<'static>> =
-          if let Ok(id) = TrackId::from_uri(&uri) {
-            let p: PlayableId<'_> = id.into();
-            Some(p.into_static())
-          } else if let Ok(id) = EpisodeId::from_uri(&uri) {
-            let p: PlayableId<'_> = id.into();
-            Some(p.into_static())
-          } else {
-            None
-          };
+        let playable: Option<PlayableId<'static>> = if let Ok(id) = TrackId::from_uri(&uri) {
+          let p: PlayableId<'_> = id.into();
+          Some(p.into_static())
+        } else if let Ok(id) = EpisodeId::from_uri(&uri) {
+          let p: PlayableId<'_> = id.into();
+          Some(p.into_static())
+        } else {
+          None
+        };
         if let Some(playable_id) = playable {
           self
             .start_playback(None, Some(vec![playable_id]), None)
