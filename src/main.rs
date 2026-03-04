@@ -813,27 +813,25 @@ of the app. Beware that this comes at a CPU cost!",
       .ok()
       .and_then(|r| r.ok())
       .flatten();
-    match update_result {
-      Some(new_version) => {
-        println!("Updated to v{}! Restarting...", new_version);
-        // Re-exec the current binary with the same args, skipping the update check
-        let exe = std::env::current_exe().expect("failed to get current executable path");
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        let status = std::process::Command::new(&exe)
-          .args(&args)
-          .env("SPOTATUI_SKIP_UPDATE", "1")
-          .status();
-        match status {
-          Ok(exit_status) => std::process::exit(exit_status.code().unwrap_or(0)),
-          Err(e) => {
-            eprintln!("Failed to restart after update: {}", e);
-            eprintln!("Please restart spotatui manually.");
-            std::process::exit(1);
-          }
+    if let Some(new_version) = update_result {
+      println!("Updated to v{}! Restarting...", new_version);
+      // Re-exec the current binary with the same args, skipping the update check
+      let exe = std::env::current_exe().expect("failed to get current executable path");
+      let args: Vec<String> = std::env::args().skip(1).collect();
+      let status = std::process::Command::new(&exe)
+        .args(&args)
+        .env("SPOTATUI_SKIP_UPDATE", "1")
+        .status();
+      match status {
+        Ok(exit_status) => std::process::exit(exit_status.code().unwrap_or(0)),
+        Err(e) => {
+          eprintln!("Failed to restart after update: {}", e);
+          eprintln!("Please restart spotatui manually.");
+          std::process::exit(1);
         }
       }
-      None => {} // Up-to-date or check failed — continue normally
     }
+    // Up-to-date or check failed — continue normally
   }
 
   let mut user_config = UserConfig::new();
