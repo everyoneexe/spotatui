@@ -2488,7 +2488,12 @@ impl App {
           name: "Startup Behavior".to_string(),
           description: "Playback state when spotatui starts: continue, play, or pause".to_string(),
           value: SettingValue::Cycle(
-            self.user_config.behavior.startup_behavior.name().to_string(),
+            self
+              .user_config
+              .behavior
+              .startup_behavior
+              .name()
+              .to_string(),
             crate::core::user_config::StartupBehavior::options(),
           ),
         },
