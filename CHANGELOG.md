@@ -2,6 +2,14 @@
 
 ## [0.37.2] - 2026-03-04
 
+### Changed
+
+- **Silent Auto-Update on Launch**: Replaced the in-app update prompt with a silent, automatic update mechanism ([#140](https://github.com/LargeModGames/spotatui/pull/140)). The app now checks for, downloads, and installs updates automatically at startup and restarts itself if an update is applied. The update check can be skipped by setting the `SPOTATUI_SKIP_UPDATE` environment variable.
+
+### Removed
+
+- **In-App Update Prompt**: Removed all UI, navigation, and logic related to the previous interactive update prompt (`UpdatePrompt` state, handlers, and popup) ([#140](https://github.com/LargeModGames/spotatui/pull/140)).
+
 ### Fixed
 
 - **macOS Build Feature Missing**: Fixed missing `macos-media` feature flag in CD workflow for macOS runners, preventing native media controls from working correctly.
