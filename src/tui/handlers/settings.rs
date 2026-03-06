@@ -258,6 +258,8 @@ fn handle_key_edit(key: Key, app: &mut App) {
       app.settings_edit_mode = false;
       app.settings_edit_buffer.clear();
     }
+    // Ignore standalone modifier key presses (e.g. pressing Shift alone)
+    Key::Unknown => {}
     // Any other key press is captured as the new keybinding
     _ => {
       // Check if this is a reserved key

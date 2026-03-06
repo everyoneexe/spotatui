@@ -25,31 +25,31 @@ pub fn parse_delay_secs(s: &str) -> Result<u64, String> {
       .trim()
       .parse::<u64>()
       .map(|v| v * 86400)
-      .map_err(|_| format!("Invalid days value"));
+      .map_err(|_| "Invalid days value".to_string());
   }
   if let Some(n) = s.strip_suffix('h') {
     return n
       .trim()
       .parse::<u64>()
       .map(|v| v * 3600)
-      .map_err(|_| format!("Invalid hours value"));
+      .map_err(|_| "Invalid hours value".to_string());
   }
   if let Some(n) = s.strip_suffix('m') {
     return n
       .trim()
       .parse::<u64>()
       .map(|v| v * 60)
-      .map_err(|_| format!("Invalid minutes value"));
+      .map_err(|_| "Invalid minutes value".to_string());
   }
   if let Some(n) = s.strip_suffix('s') {
     return n
       .trim()
       .parse::<u64>()
-      .map_err(|_| format!("Invalid seconds value"));
+      .map_err(|_| "Invalid seconds value".to_string());
   }
   // bare number treated as seconds
   s.parse::<u64>()
-    .map_err(|_| format!("Invalid numeric value or unknown suffix"))
+    .map_err(|_| "Invalid numeric value or unknown suffix".to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize)]

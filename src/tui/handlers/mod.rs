@@ -135,6 +135,9 @@ pub fn handle_app(key: Key, app: &mut App) {
     _ if key == app.user_config.keys.previous_track => {
       app.previous_track();
     }
+    _ if key == app.user_config.keys.force_previous_track => {
+      app.force_previous_track();
+    }
     _ if key == app.user_config.keys.help => {
       app.push_navigation_stack(RouteId::HelpMenu, ActiveBlock::HelpMenu);
     }
@@ -452,6 +455,19 @@ mod tests {
 
     assert_eq!(app.input, vec!['W']);
     assert!(app.status_message.is_none());
+  }
+
+  #[test]
+  fn force_previous_track_dispatches_from_anywhere() {
+    let mut app = App::default();
+    app.set_current_route_state(Some(ActiveBlock::Empty), Some(ActiveBlock::Library));
+
+    // Default force_previous_track is Key::Char('P')
+    handle_app(Key::Char('P'), &mut app);
+
+    // force_previous_track dispatches through App which requires no io_tx in tests,
+    // so just confirm the route didn't change (it shouldn't navigate anywhere)
+    assert_eq!(app.get_current_route().active_block, ActiveBlock::Empty);
   }
 
   #[cfg(target_os = "macos")]

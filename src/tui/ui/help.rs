@@ -59,6 +59,11 @@ pub fn get_help_docs(app: &App) -> Vec<Vec<String>> {
       String::from("General"),
     ],
     vec![
+      String::from("Force skip to previous track"),
+      key_bindings.force_previous_track.to_string(),
+      String::from("General"),
+    ],
+    vec![
       String::from("Seek backwards 5 seconds"),
       key_bindings.seek_backwards.to_string(),
       String::from("General"),

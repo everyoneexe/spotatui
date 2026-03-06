@@ -196,6 +196,14 @@ impl From<event::KeyEvent> for Key {
         ..
       } => Key::Ctrl(c),
 
+      // Terminals using the kitty keyboard protocol send Shift+letter as lowercase
+      // char with SHIFT modifier; normalise to uppercase so Key::Char('P') works.
+      event::KeyEvent {
+        code: event::KeyCode::Char(c),
+        modifiers: event::KeyModifiers::SHIFT,
+        ..
+      } if c.is_ascii_lowercase() => Key::Char(c.to_ascii_uppercase()),
+
       event::KeyEvent {
         code: event::KeyCode::Char(c),
         ..

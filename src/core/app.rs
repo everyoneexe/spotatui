@@ -1738,6 +1738,33 @@ impl App {
     }
   }
 
+  pub fn force_previous_track(&mut self) {
+    info!("force skipping to previous track");
+    #[cfg(feature = "streaming")]
+    if self.is_native_streaming_active_for_playback() {
+      if let Some(ref player) = self.streaming_player {
+        player.activate();
+        // First prev() restarts the current track (if past Spotify's ~3s threshold).
+        // After a short delay the second prev() actually skips to the previous track,
+        // since the position is now back at 0.
+        player.prev();
+        self.song_progress_ms = 0;
+        let player = std::sync::Arc::clone(player);
+        std::thread::spawn(move || {
+          std::thread::sleep(std::time::Duration::from_millis(500));
+          player.prev();
+          std::thread::sleep(std::time::Duration::from_millis(300));
+          player.activate();
+          player.play();
+        });
+        return;
+      }
+    }
+
+    self.song_progress_ms = 0;
+    self.dispatch(IoEvent::ForcePreviousTrack);
+  }
+
   pub fn next_track(&mut self) {
     info!("skipping to next track");
     // Use native streaming player for instant control (bypasses event channel latency)
@@ -2617,6 +2644,12 @@ impl App {
           value: SettingValue::Key(key_to_string(&self.user_config.keys.previous_track)),
         },
         SettingItem {
+          id: "keys.force_previous_track".to_string(),
+          name: "Force Previous Track".to_string(),
+          description: "Always skip to the previous track (ignoring playback position)".to_string(),
+          value: SettingValue::Key(key_to_string(&self.user_config.keys.force_previous_track)),
+        },
+        SettingItem {
           id: "keys.shuffle".to_string(),
           name: "Shuffle".to_string(),
           description: "Toggle shuffle mode".to_string(),
@@ -2999,6 +3032,13 @@ impl App {
           if let SettingValue::Key(v) = &setting.value {
             if let Ok(key) = crate::core::user_config::parse_key_public(v.clone()) {
               self.user_config.keys.previous_track = key;
+            }
+          }
+        }
+        "keys.force_previous_track" => {
+          if let SettingValue::Key(v) = &setting.value {
+            if let Ok(key) = crate::core::user_config::parse_key_public(v.clone()) {
+              self.user_config.keys.force_previous_track = key;
             }
           }
         }

@@ -573,6 +573,7 @@ pub struct KeyBindingsString {
   seek_forwards: Option<String>,
   next_track: Option<String>,
   previous_track: Option<String>,
+  force_previous_track: Option<String>,
   help: Option<String>,
   shuffle: Option<String>,
   repeat: Option<String>,
@@ -607,6 +608,7 @@ pub struct KeyBindings {
   pub seek_forwards: Key,
   pub next_track: Key,
   pub previous_track: Key,
+  pub force_previous_track: Key,
   pub help: Key,
   pub shuffle: Key,
   pub repeat: Key,
@@ -749,6 +751,7 @@ impl UserConfig {
         seek_forwards: Key::Char('>'),
         next_track: Key::Char('n'),
         previous_track: Key::Char('p'),
+        force_previous_track: Key::Char('P'),
         help: Key::Char('?'),
         shuffle: Key::Ctrl('s'),
         repeat: Key::Ctrl('r'),
@@ -863,6 +866,7 @@ impl UserConfig {
     to_keys!(seek_forwards);
     to_keys!(next_track);
     to_keys!(previous_track);
+    to_keys!(force_previous_track);
     to_keys!(help);
     to_keys!(shuffle);
     to_keys!(repeat);
@@ -1209,6 +1213,7 @@ impl UserConfig {
       seek_forwards: Some(key_to_config_string(self.keys.seek_forwards)),
       next_track: Some(key_to_config_string(self.keys.next_track)),
       previous_track: Some(key_to_config_string(self.keys.previous_track)),
+      force_previous_track: Some(key_to_config_string(self.keys.force_previous_track)),
       help: Some(key_to_config_string(self.keys.help)),
       shuffle: Some(key_to_config_string(self.keys.shuffle)),
       repeat: Some(key_to_config_string(self.keys.repeat)),

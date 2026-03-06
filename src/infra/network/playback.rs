@@ -26,6 +26,7 @@ pub trait PlaybackNetwork {
   async fn pause_playback(&mut self);
   async fn next_track(&mut self);
   async fn previous_track(&mut self);
+  async fn force_previous_track(&mut self);
   async fn seek(&mut self, position_ms: u32);
   async fn shuffle(&mut self, shuffle_state: bool);
   async fn repeat(&mut self, repeat_state: RepeatState);
@@ -526,6 +527,34 @@ impl PlaybackNetwork for Network {
         return;
       }
     }
+
+    if let Err(e) = self.spotify.previous_track(None).await {
+      let mut app = self.app.lock().await;
+      app.handle_error(anyhow!(e));
+    }
+  }
+
+  async fn force_previous_track(&mut self) {
+    #[cfg(feature = "streaming")]
+    if is_native_streaming_active_for_playback(self).await {
+      if let Some(ref player) = self.streaming_player {
+        player.prev();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        player.prev();
+        return;
+      }
+    }
+
+    // First previous_track restarts the current track (if past Spotify's ~3s
+    // threshold). After a short delay the second call actually skips to the
+    // previous track, since the position is now back at 0.
+    if let Err(e) = self.spotify.previous_track(None).await {
+      let mut app = self.app.lock().await;
+      app.handle_error(anyhow!(e));
+      return;
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     if let Err(e) = self.spotify.previous_track(None).await {
       let mut app = self.app.lock().await;

@@ -62,6 +62,7 @@ pub enum IoEvent {
   Seek(u32),
   NextTrack,
   PreviousTrack,
+  ForcePreviousTrack,
   Shuffle(bool), // desired shuffle state
   Repeat(RepeatState),
   PausePlayback,
@@ -242,6 +243,9 @@ impl Network {
       }
       IoEvent::PreviousTrack => {
         self.previous_track().await;
+      }
+      IoEvent::ForcePreviousTrack => {
+        self.force_previous_track().await;
       }
       IoEvent::Repeat(repeat_state) => {
         self.repeat(repeat_state).await;
