@@ -412,16 +412,23 @@ fn on_enter(app: &mut App) {
         };
       }
       TrackTableContext::RecommendedTracks => {
-        let playable_ids: Vec<PlayableId<'static>> = app
-          .recommended_tracks
-          .iter()
-          .filter_map(|track| track_playable_id(track.id.clone()))
-          .collect();
+        let mut playable_ids: Vec<PlayableId<'static>> = Vec::new();
+        let mut selected_offset: Option<usize> = None;
+
+        for (idx, track) in tracks.iter().enumerate() {
+          if let Some(playable_id) = track_playable_id(track.id.clone()) {
+            if idx == *selected_index {
+              selected_offset = Some(playable_ids.len());
+            }
+            playable_ids.push(playable_id);
+          }
+        }
+
         if !playable_ids.is_empty() {
           app.dispatch(IoEvent::StartPlayback(
             None,
             Some(playable_ids),
-            Some(app.track_table.selected_index),
+            Some(selected_offset.unwrap_or(0)),
           ));
         }
       }
@@ -529,8 +536,8 @@ fn on_queue(app: &mut App) {
         };
       }
       TrackTableContext::RecommendedTracks => {
-        if let Some(full_track) = app.recommended_tracks.get(app.track_table.selected_index) {
-          if let Some(playable_id) = track_playable_id(full_track.id.clone()) {
+        if let Some(track) = tracks.get(*selected_index) {
+          if let Some(playable_id) = track_playable_id(track.id.clone()) {
             app.dispatch(IoEvent::AddItemToQueue(playable_id));
           }
         }
