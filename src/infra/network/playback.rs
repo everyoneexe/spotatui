@@ -7,7 +7,7 @@ use chrono::TimeDelta;
 use rspotify::model::{
   enums::RepeatState,
   idtypes::{PlayContextId, PlayableId},
-  PlayableItem,
+  Offset, PlayableItem,
 };
 use rspotify::prelude::*;
 use std::time::{Duration, Instant};
@@ -67,6 +67,20 @@ fn trim_api_playback_uris(
     .collect::<Vec<_>>();
 
   (trimmed_uris, Some(selected_index - start))
+}
+
+fn api_playback_offset(
+  has_context: bool,
+  uris: Option<&[PlayableId<'static>]>,
+  offset: Option<usize>,
+) -> Option<Offset> {
+  if has_context {
+    if let Some(first_uri) = uris.and_then(|track_uris| track_uris.first()) {
+      return Some(Offset::Uri(first_uri.uri()));
+    }
+  }
+
+  offset.map(|index| Offset::Position(ChronoDuration::milliseconds(index as i64)))
 }
 
 #[cfg(feature = "streaming")]
@@ -466,31 +480,32 @@ impl PlaybackNetwork for Network {
       }
     }
 
-    let offset_struct =
-      offset.map(|o| rspotify::model::Offset::Position(ChronoDuration::milliseconds(o as i64)));
-
-    let result = if let Some(context) = context_id {
-      self
-        .spotify
-        .start_context_playback(
-          context,
-          None, // device_id
-          offset_struct,
-          None, // position
-        )
-        .await
-    } else if let Some(track_uris) = uris {
-      self
-        .spotify
-        .start_uris_playback(
-          track_uris,
-          None, // device_id
-          offset_struct,
-          None, // position
-        )
-        .await
-    } else {
-      self.spotify.resume_playback(None, None).await
+    let result = match (context_id, uris) {
+      (Some(context), track_uris) => {
+        let offset_struct = api_playback_offset(true, track_uris.as_deref(), offset);
+        self
+          .spotify
+          .start_context_playback(
+            context,
+            None, // device_id
+            offset_struct,
+            None, // position
+          )
+          .await
+      }
+      (None, Some(track_uris)) => {
+        let offset_struct = api_playback_offset(false, None, offset);
+        self
+          .spotify
+          .start_uris_playback(
+            track_uris,
+            None, // device_id
+            offset_struct,
+            None, // position
+          )
+          .await
+      }
+      (None, None) => self.spotify.resume_playback(None, None).await,
     };
 
     match result {
@@ -933,5 +948,47 @@ mod tests {
     assert_eq!(trimmed.len(), MAX_API_PLAYBACK_URIS);
     assert_eq!(offset, Some(99));
     assert_eq!(trimmed[offset.unwrap()].uri(), uris[149].uri());
+  }
+
+  #[test]
+  fn api_playback_offset_uses_track_uri_for_context_playback() {
+    let uris = vec![
+      playable_track("0000000000000000000001"),
+      playable_track("0000000000000000000002"),
+    ];
+
+    let offset = api_playback_offset(true, Some(&uris), Some(1));
+
+    assert_eq!(
+      offset,
+      Some(Offset::Uri(
+        "spotify:track:0000000000000000000001".to_string()
+      ))
+    );
+  }
+
+  #[test]
+  fn api_playback_offset_uses_position_for_uri_list_playback() {
+    let uris = vec![
+      playable_track("0000000000000000000001"),
+      playable_track("0000000000000000000002"),
+    ];
+
+    let offset = api_playback_offset(false, Some(&uris), Some(1));
+
+    assert_eq!(
+      offset,
+      Some(Offset::Position(ChronoDuration::milliseconds(1)))
+    );
+  }
+
+  #[test]
+  fn api_playback_offset_falls_back_to_position_when_context_has_no_uri() {
+    let offset = api_playback_offset(true, None, Some(3));
+
+    assert_eq!(
+      offset,
+      Some(Offset::Position(ChronoDuration::milliseconds(3)))
+    );
   }
 }
