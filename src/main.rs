@@ -1087,7 +1087,7 @@ of the app. Beware that this comes at a CPU cost!",
     // Save, because we checked if the subcommand is present at runtime
     let m = matches.subcommand_matches(cmd).unwrap();
     #[cfg(feature = "streaming")]
-    let network = Network::new(spotify, client_config, &app, None); // CLI doesn't use streaming
+    let network = Network::new(spotify, client_config, &app); // CLI doesn't use streaming
     #[cfg(not(feature = "streaming"))]
     let network = Network::new(spotify, client_config, &app);
     println!(
@@ -1192,9 +1192,7 @@ of the app. Beware that this comes at a CPU cost!",
       app_mut.streaming_player = streaming_player.clone();
     }
 
-    // Clone streaming player and device name for use in network spawn
-    #[cfg(feature = "streaming")]
-    let streaming_player_clone = streaming_player.clone();
+    // Clone the device name for startup device selection in the network task.
     #[cfg(feature = "streaming")]
     let streaming_device_name = streaming_player
       .as_ref()
@@ -1458,7 +1456,7 @@ of the app. Beware that this comes at a CPU cost!",
     info!("spawning spotify network event handler");
     tokio::spawn(async move {
       #[cfg(feature = "streaming")]
-      let mut network = Network::new(spotify, client_config, &app, streaming_player_clone);
+      let mut network = Network::new(spotify, client_config, &app);
       #[cfg(not(feature = "streaming"))]
       let mut network = Network::new(spotify, client_config, &app);
 
@@ -1912,13 +1910,9 @@ async fn is_current_streaming_player(
   app: &Arc<Mutex<App>>,
   player: &Arc<player::StreamingPlayer>,
 ) -> bool {
-  // Fast path: check if this player is still alive (spirc not terminated).
-  // Avoids mutex lock on every hot-path event if player has been replaced.
-  if !player.is_connected() {
-    return false;
-  }
-
-  // Slow path: verify this is still the current player in app state
+  // Pointer identity determines whether an event belongs to the active player.
+  // Do not reject disconnected players here: SessionDisconnected still needs to
+  // reach the handler so the recovery path can run.
   let app_lock = app.lock().await;
   app_lock
     .streaming_player
@@ -1996,7 +1990,16 @@ fn spawn_player_event_handler(ctx: PlayerEventContext) {
   {
     let mpris_manager = ctx.mpris_manager.clone();
     tokio::spawn(async move {
-      handle_player_events(event_rx, player, app, shared_position, shared_is_playing, recovery_tx, mpris_manager).await;
+      handle_player_events(
+        event_rx,
+        player,
+        app,
+        shared_position,
+        shared_is_playing,
+        recovery_tx,
+        mpris_manager,
+      )
+      .await;
     });
   }
 

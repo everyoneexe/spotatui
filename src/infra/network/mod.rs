@@ -28,9 +28,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
-#[cfg(feature = "streaming")]
-use crate::infra::player::StreamingPlayer;
-
 // Re-export traits
 use self::library::LibraryNetwork;
 use self::metadata::MetadataNetwork;
@@ -161,8 +158,6 @@ impl Network {
     spotify: AuthCodePkceSpotify,
     client_config: ClientConfig,
     app: &Arc<Mutex<App>>,
-    // Streaming player now lives in App state; this arg is unused pending call-site cleanup.
-    _streaming_player: Option<Arc<StreamingPlayer>>,
   ) -> Self {
     Network {
       spotify,

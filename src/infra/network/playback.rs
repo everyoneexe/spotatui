@@ -135,13 +135,6 @@ async fn is_native_streaming_active_for_playback(network: &Network) -> bool {
   false
 }
 
-#[cfg(feature = "streaming")]
-async fn is_native_streaming_active(network: &Network) -> bool {
-  current_streaming_player(network)
-    .await
-    .is_some_and(|p| p.is_connected())
-}
-
 impl PlaybackNetwork for Network {
   async fn get_current_playback(&mut self) {
     // When using native streaming, the Spotify API returns stale server-side state
