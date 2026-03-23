@@ -1,14 +1,39 @@
 # Changelog
 
-## [Unreleased]
+## [v0.38.0] - 2026-03-23
+
+### Added
+
+- **Expanded add-to-playlist flows**: Added `w` add-to-playlist support from search song results, artist top tracks, and recently played, limited the picker to editable playlists, and refresh the open playlist table after a successful add ([#168](https://github.com/LargeModGames/spotatui/pull/168)).
+- **Fullscreen Cover Art View**: Added a dedicated `CoverArtView` with its own route, handler, UI, help entry, and configurable keybinding when the `cover-art` feature is enabled ([#186](https://github.com/LargeModGames/spotatui/pull/186)).
+- **MPRIS on Linux without native streaming**: Added MPRIS availability and full playback/metadata state sync for Linux builds even when spotatui is controlling an external Spotify device instead of the native streaming backend ([#172](https://github.com/LargeModGames/spotatui/pull/172)).
+
+### Changed
+
+- **Basic View renamed to Lyrics View**: Renamed the former fullscreen `BasicView` to `LyricsView`, kept `basic_view` as a config alias for backward compatibility, and split full-screen artwork into the new Cover Art view ([#186](https://github.com/LargeModGames/spotatui/pull/186)).
+- **Nix flake packaging/version handling**: Refreshed `flake.nix` and simplified release-version handling for Nix packaging ([#149](https://github.com/LargeModGames/spotatui/pull/149), [#161](https://github.com/LargeModGames/spotatui/pull/161)).
 
 ### Fixed
 
-- **Liked Songs playback/paging drift**: Fixed saved-track playback starting the wrong song, prevented rows from reordering while pages load, stabilized background prefetch around the current page, and made liked hearts render immediately when opening Liked Songs ([#139](https://github.com/LargeModGames/spotatui/issues/139)).
-- **Native playback resume after Enter**: Fixed native streaming loads that could update the playbar to `Playing` without actually resuming audio until play/pause was toggled again.
-- **Playlist paging duplication/reordering**: Fixed playlist tracks duplicating or shuffling while additional pages load by switching playlists to a stable offset-keyed page cache and bounded lookahead prefetch model.
-- **Sparse playlist page navigation**: Fixed playlist next/previous navigation so it now targets the logical adjacent page offset instead of jumping between whatever sparse cached pages happen to exist.
-- **Playlist table identity drift**: Fixed playlist sort/fetch actions so they target the currently open playlist table via `playlist_track_table_id` instead of stale sidebar selection state.
+- **Liked Songs playback/paging drift**: Fixed saved-track playback starting the wrong song, prevented rows from reordering while pages load, stabilized background prefetch around the current page, and made liked hearts render immediately when opening Liked Songs ([#163](https://github.com/LargeModGames/spotatui/pull/163); fixes [#139](https://github.com/LargeModGames/spotatui/issues/139)).
+- **Playlist paging/cache stability**: Fixed playlist tracks duplicating or shuffling while additional pages load, made next/previous navigation target adjacent page offsets instead of sparse cache indexes, and ensured playlist sort/fetch actions target the open playlist table instead of stale sidebar selection state ([#163](https://github.com/LargeModGames/spotatui/pull/163)).
+- **Recommendations playback targeting**: Fixed recommendation results so Enter and queue actions use the currently visible selected track list instead of stale cached recommendation state ([#151](https://github.com/LargeModGames/spotatui/issues/151)).
+- **OAuth callback/auth retry handling**: Fixed malformed callback requests and browser preflight noise triggering repeated auth prompts at startup, and tightened streaming OAuth retry behavior so only auth failures force a fresh credential retry ([#176](https://github.com/LargeModGames/spotatui/pull/176); fixes [#170](https://github.com/LargeModGames/spotatui/issues/170)).
+- **Spotify 5xx playback polling**: Temporary Spotify `502`/`503`/`504` errors during playback polling now show a retry status message and recover automatically instead of surfacing as a hard failure ([#178](https://github.com/LargeModGames/spotatui/pull/178)).
+- **External-device/native playback recovery**: Fixed playlist playback on external devices always starting from track 1, and added recovery for native streaming sessions that could stop after the connection dropped or went stale ([#177](https://github.com/LargeModGames/spotatui/pull/177); fixes [#162](https://github.com/LargeModGames/spotatui/issues/162) and [#156](https://github.com/LargeModGames/spotatui/issues/156)).
+- **Audio backend panic reporting**: Expanded the panic hook to recognize recoverable PortAudio and Rodio backend failures and show clearer error messaging ([#184](https://github.com/LargeModGames/spotatui/pull/184)).
+- **Playlist page-boundary scrolling**: Fixed playlist and track-table scrolling that could briefly render only a single visible row when crossing a page boundary ([#185](https://github.com/LargeModGames/spotatui/pull/185)).
+
+### Internal
+
+- **Dependency maintenance**: Bumped `self_update`, `tokio`, `tokio-tungstenite` (twice), `quinn-proto`, `rustls-webpki`, `tar`, and `worker-relay`'s `undici`/`wrangler` dependencies ([#153](https://github.com/LargeModGames/spotatui/pull/153), [#154](https://github.com/LargeModGames/spotatui/pull/154), [#155](https://github.com/LargeModGames/spotatui/pull/155), [#158](https://github.com/LargeModGames/spotatui/pull/158), [#175](https://github.com/LargeModGames/spotatui/pull/175), [#182](https://github.com/LargeModGames/spotatui/pull/182), [#183](https://github.com/LargeModGames/spotatui/pull/183), [#188](https://github.com/LargeModGames/spotatui/pull/188)).
+- **Rust minor dependency rollup**: Updated the grouped Rust minor dependency set, including `clap`, `clap_complete`, `image`, `openssl`, and `openssl-sys` ([#164](https://github.com/LargeModGames/spotatui/pull/164)).
+- **rspotify 0.16 migration**: Upgraded `rspotify` from `0.14.0` to `0.16.0` and applied the follow-on compatibility updates across CLI, network, metadata, playback, and UI code ([#187](https://github.com/LargeModGames/spotatui/pull/187)).
+
+### Docs
+
+- **Void Linux installation guide**: Added README installation steps for Void Linux via the `Blackhole-vl` repository ([#171](https://github.com/LargeModGames/spotatui/pull/171)).
+
 
 ## [0.37.3] - 2026-03-06
 
