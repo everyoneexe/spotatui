@@ -5,9 +5,9 @@ mod announcement_prompt;
 mod artist;
 mod artists;
 mod common_key_events;
-mod create_playlist;
 #[cfg(feature = "cover-art")]
 mod cover_art_view;
+mod create_playlist;
 mod dialog;
 mod discover;
 mod empty;

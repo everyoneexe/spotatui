@@ -25,7 +25,9 @@ fn handle_name_stage(key: Key, app: &mut App) {
     Key::Backspace => {
       if app.create_playlist_name_idx > 0 {
         app.create_playlist_name_idx -= 1;
-        let removed = app.create_playlist_name.remove(app.create_playlist_name_idx);
+        let removed = app
+          .create_playlist_name
+          .remove(app.create_playlist_name_idx);
         let width = removed.width().unwrap_or(1) as u16;
         app.create_playlist_name_cursor = app.create_playlist_name_cursor.saturating_sub(width);
       }
@@ -41,8 +43,9 @@ fn handle_name_stage(key: Key, app: &mut App) {
       if app.create_playlist_name_idx > 0 {
         app.create_playlist_name_idx -= 1;
         let c = app.create_playlist_name[app.create_playlist_name_idx];
-        app.create_playlist_name_cursor =
-          app.create_playlist_name_cursor.saturating_sub(c.width().unwrap_or(1) as u16);
+        app.create_playlist_name_cursor = app
+          .create_playlist_name_cursor
+          .saturating_sub(c.width().unwrap_or(1) as u16);
       }
     }
     Key::Right => {
@@ -95,8 +98,7 @@ fn handle_search_input(key: Key, app: &mut App) {
           .create_playlist_search_input
           .remove(app.create_playlist_search_idx);
         let width = removed.width().unwrap_or(1) as u16;
-        app.create_playlist_search_cursor =
-          app.create_playlist_search_cursor.saturating_sub(width);
+        app.create_playlist_search_cursor = app.create_playlist_search_cursor.saturating_sub(width);
       }
     }
     Key::Char(c) => {
@@ -110,8 +112,9 @@ fn handle_search_input(key: Key, app: &mut App) {
       if app.create_playlist_search_idx > 0 {
         app.create_playlist_search_idx -= 1;
         let c = app.create_playlist_search_input[app.create_playlist_search_idx];
-        app.create_playlist_search_cursor =
-          app.create_playlist_search_cursor.saturating_sub(c.width().unwrap_or(1) as u16);
+        app.create_playlist_search_cursor = app
+          .create_playlist_search_cursor
+          .saturating_sub(c.width().unwrap_or(1) as u16);
       }
     }
     Key::Right => {

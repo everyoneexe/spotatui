@@ -50,18 +50,15 @@ fn draw_name_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
     ])
     .split(area);
 
-  let label = Paragraph::new("Playlist name:")
-    .style(theme.base_style());
+  let label = Paragraph::new("Playlist name:").style(theme.base_style());
   f.render_widget(label, inner[0]);
 
   let name_text: String = app.create_playlist_name.iter().collect();
-  let input = Paragraph::new(name_text)
-    .style(theme.base_style())
-    .block(
-      Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.active)),
-    );
+  let input = Paragraph::new(name_text).style(theme.base_style()).block(
+    Block::default()
+      .borders(Borders::ALL)
+      .border_style(Style::default().fg(theme.active)),
+  );
   f.render_widget(input, inner[1]);
 
   let hint = Paragraph::new("Press Enter to continue, Esc to cancel")
@@ -72,7 +69,10 @@ fn draw_name_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
 fn draw_add_tracks_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
   let theme = &app.user_config.theme;
   let name: String = app.create_playlist_name.iter().collect();
-  let title = format!("Add Tracks to \"{}\" (Enter=create, Tab=switch panel, Esc=cancel)", name);
+  let title = format!(
+    "Add Tracks to \"{}\" (Enter=create, Tab=switch panel, Esc=cancel)",
+    name
+  );
 
   let block = Block::default()
     .title(Span::styled(
@@ -89,10 +89,7 @@ fn draw_add_tracks_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
   let inner = Layout::default()
     .direction(Direction::Vertical)
     .margin(1)
-    .constraints([
-      Constraint::Length(3),
-      Constraint::Min(5),
-    ])
+    .constraints([Constraint::Length(3), Constraint::Min(5)])
     .split(area);
 
   // Search input
@@ -102,17 +99,15 @@ fn draw_add_tracks_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
   } else {
     Style::default().fg(theme.inactive)
   };
-  let search_input = Paragraph::new(search_text)
-    .style(theme.base_style())
-    .block(
-      Block::default()
-        .title(Span::styled(
-          "Search (Enter to search)",
-          Style::default().fg(theme.header),
-        ))
-        .borders(Borders::ALL)
-        .border_style(search_border_style),
-    );
+  let search_input = Paragraph::new(search_text).style(theme.base_style()).block(
+    Block::default()
+      .title(Span::styled(
+        "Search (Enter to search)",
+        Style::default().fg(theme.header),
+      ))
+      .borders(Borders::ALL)
+      .border_style(search_border_style),
+  );
   f.render_widget(search_input, inner[0]);
 
   // Two-panel area: results + added tracks
@@ -136,8 +131,7 @@ fn draw_add_tracks_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
         .first()
         .map(|a| a.name.as_str())
         .unwrap_or("Unknown");
-      ListItem::new(format!("{} — {}", t.name, artist))
-        .style(theme.base_style())
+      ListItem::new(format!("{} — {}", t.name, artist)).style(theme.base_style())
     })
     .collect();
 
@@ -182,8 +176,7 @@ fn draw_add_tracks_stage(f: &mut Frame<'_>, app: &App, area: Rect) {
         .first()
         .map(|a| a.name.as_str())
         .unwrap_or("Unknown");
-      ListItem::new(format!("{} — {}", t.name, artist))
-        .style(theme.base_style())
+      ListItem::new(format!("{} — {}", t.name, artist)).style(theme.base_style())
     })
     .collect();
 

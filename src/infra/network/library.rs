@@ -282,10 +282,7 @@ impl LibraryNetwork for Network {
       let page = match super::requests::spotify_get_typed_compat_for::<Page<SimplifiedPlaylist>>(
         &self.spotify,
         "me/playlists",
-        &[
-          ("limit", limit.to_string()),
-          ("offset", offset.to_string()),
-        ],
+        &[("limit", limit.to_string()), ("offset", offset.to_string())],
       )
       .await
       {
@@ -779,7 +776,7 @@ impl LibraryNetwork for Network {
   async fn create_new_playlist(&mut self, name: String, track_ids: Vec<TrackId<'static>>) {
     let user_id = {
       let app = self.app.lock().await;
-      app.user.as_ref().and_then(|u| Some(u.id.clone()))
+      app.user.as_ref().map(|u| u.id.clone())
     };
 
     let user_id = match user_id {
