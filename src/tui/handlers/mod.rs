@@ -184,6 +184,13 @@ pub fn handle_app(key: Key, app: &mut App) {
     _ if key == app.user_config.keys.listening_party => {
       app.push_navigation_stack(RouteId::Party, ActiveBlock::Party);
     }
+    _ if key == app.user_config.keys.like_track => {
+      if is_input_mode(app) {
+        handle_block_events(key, app);
+      } else {
+        playbar::toggle_like_currently_playing_item(app);
+      }
+    }
     // Resize sidebar: { decreases, } increases width
     Key::Char('{') => {
       if is_input_mode(app) {
@@ -498,6 +505,30 @@ mod tests {
     // force_previous_track dispatches through App which requires no io_tx in tests,
     // so just confirm the route didn't change (it shouldn't navigate anywhere)
     assert_eq!(app.get_current_route().active_block, ActiveBlock::Empty);
+  }
+
+  #[test]
+  fn global_shift_f_likes_current_track_from_anywhere() {
+    let mut app = App::default();
+    app.set_current_route_state(Some(ActiveBlock::Empty), Some(ActiveBlock::Library));
+
+    // Default like_track is Key::Char('F')
+    handle_app(Key::Char('F'), &mut app);
+
+    // toggle_like_currently_playing_item dispatches through App which requires no io_tx in tests,
+    // so just confirm the route didn't change (it shouldn't navigate anywhere)
+    assert_eq!(app.get_current_route().active_block, ActiveBlock::Empty);
+  }
+
+  #[test]
+  fn global_shift_f_is_not_intercepted_in_input_mode() {
+    let mut app = App::default();
+    app.set_current_route_state(Some(ActiveBlock::Input), Some(ActiveBlock::Input));
+
+    handle_app(Key::Char('F'), &mut app);
+
+    // In input mode, 'F' should be added to the input buffer
+    assert_eq!(app.input, vec!['F']);
   }
 
   #[cfg(target_os = "macos")]
