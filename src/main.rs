@@ -1139,14 +1139,34 @@ of the app. Beware that this comes at a CPU cost!",
     return Err(last_auth_error.unwrap_or_else(|| anyhow!("Authentication failed")));
   };
 
+  // Reconstruct the token cache path for the successfully authenticated client.
+  // client_config.client_id was updated in the loop to reflect the chosen client.
+  let final_token_cache_path =
+    token_cache_path_for_client(&config_paths.token_cache_path, &client_config.client_id);
+
+  // Persist whatever token is now in memory. rspotify's auto_reauth (token_refreshing=true)
+  // silently refreshes the token during the spotify.me() probe in ensure_auth_token, rotating
+  // the refresh_token but never writing the result to disk (token_cached=false by default).
+  // Saving here ensures the on-disk token is always the current one, not the original stale one.
+  save_token_to_file(&spotify, &final_token_cache_path).await?;
+
   // Verify that we have a valid token before proceeding
   let token_lock = spotify.token.lock().await.expect("Failed to lock token");
   let token_expiry = if let Some(ref token) = *token_lock {
-    // Convert TimeDelta to SystemTime
-    let expires_in_secs = token.expires_in.num_seconds() as u64;
-    SystemTime::now()
-      .checked_add(std::time::Duration::from_secs(expires_in_secs))
-      .unwrap_or_else(SystemTime::now)
+    // Prefer expires_at (the absolute UTC timestamp stored in the token) so that
+    // app.spotify_token_expiry reflects the true remaining lifetime. Falling back
+    // to now + expires_in would always give ~60 min regardless of when the token
+    // was issued, causing refresh_authentication() to fire too late and letting
+    // rspotify's auto_reauth silently rotate the refresh_token without our save.
+    if let Some(expires_at) = token.expires_at {
+      let unix_secs = expires_at.timestamp().max(0) as u64;
+      SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(unix_secs)
+    } else {
+      let expires_in_secs = token.expires_in.num_seconds().max(0) as u64;
+      SystemTime::now()
+        .checked_add(std::time::Duration::from_secs(expires_in_secs))
+        .unwrap_or_else(SystemTime::now)
+    }
   } else {
     drop(token_lock);
     return Err(anyhow!("Authentication failed: no valid token available"));
@@ -1169,9 +1189,9 @@ of the app. Beware that this comes at a CPU cost!",
     // Save, because we checked if the subcommand is present at runtime
     let m = matches.subcommand_matches(cmd).unwrap();
     #[cfg(feature = "streaming")]
-    let network = Network::new(spotify, client_config, &app); // CLI doesn't use streaming
+    let network = Network::new(spotify, client_config, &app, final_token_cache_path); // CLI doesn't use streaming
     #[cfg(not(feature = "streaming"))]
-    let network = Network::new(spotify, client_config, &app);
+    let network = Network::new(spotify, client_config, &app, final_token_cache_path);
     println!(
       "{}",
       cli::handle_matches(m, cmd.to_string(), network, user_config).await?
@@ -1537,9 +1557,9 @@ of the app. Beware that this comes at a CPU cost!",
     info!("spawning spotify network event handler");
     tokio::spawn(async move {
       #[cfg(feature = "streaming")]
-      let mut network = Network::new(spotify, client_config, &app);
+      let mut network = Network::new(spotify, client_config, &app, final_token_cache_path);
       #[cfg(not(feature = "streaming"))]
-      let mut network = Network::new(spotify, client_config, &app);
+      let mut network = Network::new(spotify, client_config, &app, final_token_cache_path);
 
       // Auto-select the saved playback device when available (fallback to native streaming).
       #[cfg(feature = "streaming")]
