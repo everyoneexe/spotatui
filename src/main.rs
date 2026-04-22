@@ -470,8 +470,8 @@ fn update_macos_metadata(
 
 // Manual token cache helpers since rspotify's built-in caching isn't working
 async fn save_token_to_file(spotify: &AuthCodePkceSpotify, path: &PathBuf) -> Result<()> {
-  let token_lock = spotify.token.lock().await.expect("Failed to lock token");
-  if let Some(mut token) = (*token_lock).clone() {
+  let mut token_lock = spotify.token.lock().await.expect("Failed to lock token");
+  if let Some(ref mut token) = *token_lock {
     if token.refresh_token.is_none() && path.exists() {
       if let Ok(old_json) = fs::read_to_string(path) {
         if let Ok(old_token) = serde_json::from_str::<Token>(&old_json) {
@@ -479,7 +479,7 @@ async fn save_token_to_file(spotify: &AuthCodePkceSpotify, path: &PathBuf) -> Re
         }
       }
     }
-    let token_json = serde_json::to_string_pretty(&token)?;
+    let token_json = serde_json::to_string_pretty(token)?;
     fs::write(path, token_json)?;
     info!("token cached to {}", path.display());
   }
@@ -1155,8 +1155,9 @@ of the app. Beware that this comes at a CPU cost!",
   // silently refreshes the token during the spotify.me() probe in ensure_auth_token, rotating
   // the refresh_token but never writing the result to disk (token_cached=false by default).
   // Saving here ensures the on-disk token is always the current one, not the original stale one.
-  save_token_to_file(&spotify, &final_token_cache_path).await?;
-
+  if let Err(e) = save_token_to_file(&spotify, &final_token_cache_path).await {
+    log::warn!("Failed to cache token on startup: {}", e);
+  }
   // Verify that we have a valid token before proceeding
   let token_lock = spotify.token.lock().await.expect("Failed to lock token");
   let token_expiry = if let Some(ref token) = *token_lock {

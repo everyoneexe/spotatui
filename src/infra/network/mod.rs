@@ -482,13 +482,13 @@ impl Network {
     // If Spotify did not return a new refresh_token, carry over the one already
     // on disk so we never overwrite a valid refresh_token with null.
     {
-      let token_lock = self
+      let mut token_lock = self
         .spotify
         .token
         .lock()
         .await
         .expect("Failed to lock token");
-      if let Some(mut token) = (*token_lock).clone() {
+      if let Some(ref mut token) = *token_lock {
         if token.refresh_token.is_none() && self.token_cache_path.exists() {
           if let Ok(old_json) = std::fs::read_to_string(&self.token_cache_path) {
             if let Ok(old_token) = serde_json::from_str::<rspotify::Token>(&old_json) {
@@ -496,7 +496,7 @@ impl Network {
             }
           }
         }
-        match serde_json::to_string_pretty(&token) {
+        match serde_json::to_string_pretty(token) {
           Ok(token_json) => {
             if let Err(e) = std::fs::write(&self.token_cache_path, token_json) {
               log::warn!("Failed to persist refreshed token: {}", e);
