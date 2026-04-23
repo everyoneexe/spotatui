@@ -24,6 +24,7 @@ use rspotify::model::{
 };
 use rspotify::prelude::Id;
 use rspotify::AuthCodePkceSpotify;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -154,6 +155,7 @@ pub struct Network {
   pub app: Arc<Mutex<App>>,
   pub party_connection: Option<sync::PartyConnection>,
   pub party_incoming_rx: Option<tokio::sync::mpsc::UnboundedReceiver<sync::SyncMessage>>,
+  pub token_cache_path: PathBuf,
 }
 
 impl Network {
@@ -162,6 +164,7 @@ impl Network {
     spotify: AuthCodePkceSpotify,
     client_config: ClientConfig,
     app: &Arc<Mutex<App>>,
+    token_cache_path: PathBuf,
   ) -> Self {
     Network {
       spotify,
@@ -171,6 +174,7 @@ impl Network {
       app: Arc::clone(app),
       party_connection: None,
       party_incoming_rx: None,
+      token_cache_path,
     }
   }
 
@@ -179,6 +183,7 @@ impl Network {
     spotify: AuthCodePkceSpotify,
     client_config: ClientConfig,
     app: &Arc<Mutex<App>>,
+    token_cache_path: PathBuf,
   ) -> Self {
     Network {
       spotify,
@@ -188,6 +193,7 @@ impl Network {
       app: Arc::clone(app),
       party_connection: None,
       party_incoming_rx: None,
+      token_cache_path,
     }
   }
 
@@ -470,6 +476,40 @@ impl Network {
     if let Some(expiry) = new_expiry {
       let mut app = self.app.lock().await;
       app.spotify_token_expiry = expiry;
+    }
+
+    // Persist the refreshed token so it survives a reboot.
+    // If Spotify did not return a new refresh_token, carry over the one already
+    // on disk so we never overwrite a valid refresh_token with null.
+    {
+      let mut token_lock = self
+        .spotify
+        .token
+        .lock()
+        .await
+        .expect("Failed to lock token");
+      if let Some(ref mut token) = *token_lock {
+        if token.refresh_token.is_none() && self.token_cache_path.exists() {
+          if let Ok(old_json) = std::fs::read_to_string(&self.token_cache_path) {
+            if let Ok(old_token) = serde_json::from_str::<rspotify::Token>(&old_json) {
+              token.refresh_token = old_token.refresh_token;
+            }
+          }
+        }
+        match serde_json::to_string_pretty(token) {
+          Ok(token_json) => {
+            if let Err(e) = std::fs::write(&self.token_cache_path, token_json) {
+              log::warn!("Failed to persist refreshed token: {}", e);
+            } else {
+              log::info!(
+                "refreshed token cached to {}",
+                self.token_cache_path.display()
+              );
+            }
+          }
+          Err(e) => log::warn!("Failed to serialize refreshed token: {}", e),
+        }
+      }
     }
   }
 
