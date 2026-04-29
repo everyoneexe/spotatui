@@ -913,6 +913,23 @@ impl UserConfig {
         }
       };
     }
+    // Check if any colour values exist in config already`
+    let has_color_values = theme.active.is_some()
+      || theme.banner.is_some()
+      || theme.error_border.is_some()
+      || theme.error_text.is_some()
+      || theme.hint.is_some()
+      || theme.hovered.is_some()
+      || theme.inactive.is_some()
+      || theme.playbar_background.is_some()
+      || theme.playbar_progress.is_some()
+      || theme.playbar_progress_text.is_some()
+      || theme.playbar_text.is_some()
+      || theme.selected.is_some()
+      || theme.text.is_some()
+      || theme.background.is_some()
+      || theme.header.is_some()
+      || theme.highlighted_lyrics.is_some();
 
     to_theme_item!(active);
     to_theme_item!(banner);
@@ -931,8 +948,15 @@ impl UserConfig {
     to_theme_item!(header);
     to_theme_item!(highlighted_lyrics);
 
+    // If the preset value exists in the config, we load it
     if let Some(preset_name) = theme.preset {
       self.current_preset = ThemePreset::from_name(&preset_name);
+    } else if has_color_values {
+      // If there is no preset value, or it is malformed,
+      // and if the config exists and has some theme colours set:
+      // we handle backwards compatibility for old theme configs.
+      // Set to Custom on first load after the upgrade.
+      self.current_preset = ThemePreset::Custom;
     }
 
     self.theme = match self.current_preset {
