@@ -3737,6 +3737,28 @@ impl App {
       }
     }
   }
+
+  /// Updates the colour RGB entries when switching through the presets in themes
+  pub fn sync_theme_color_settings(&mut self, theme: &crate::core::user_config::Theme) {
+    let mappings: [(&str, ratatui::style::Color); 11] = [
+      ("theme.active", theme.active),
+      ("theme.banner", theme.banner),
+      ("theme.hint", theme.hint),
+      ("theme.hovered", theme.hovered),
+      ("theme.selected", theme.selected),
+      ("theme.inactive", theme.inactive),
+      ("theme.text", theme.text),
+      ("theme.error_text", theme.error_text),
+      ("theme.playbar_background", theme.playbar_background),
+      ("theme.playbar_progress", theme.playbar_progress),
+      ("theme.highlighted_lyrics", theme.highlighted_lyrics),
+    ];
+    for setting in &mut self.settings_items {
+      if let Some((_, color)) = mappings.iter().find(|(id, _)| *id == setting.id) {
+        setting.value = SettingValue::Color(color_to_string(*color));
+      }
+    }
+  }
 }
 
 #[cfg(test)]
