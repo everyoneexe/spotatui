@@ -3742,8 +3742,8 @@ impl App {
         "theme.error_border" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
-              self.user_config.theme.error_border= c;
-              self.user_config.custom_theme.error_border= c;
+              self.user_config.theme.error_border = c;
+              self.user_config.custom_theme.error_border = c;
             }
           }
         }
@@ -3774,8 +3774,8 @@ impl App {
         "theme.playbar_text" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
-              self.user_config.theme.playbar_text= c;
-              self.user_config.custom_theme.playbar_text= c;
+              self.user_config.theme.playbar_text = c;
+              self.user_config.custom_theme.playbar_text = c;
             }
           }
         }
@@ -3790,16 +3790,16 @@ impl App {
         "theme.background" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
-              self.user_config.theme.background= c;
-              self.user_config.custom_theme.background= c;
+              self.user_config.theme.background = c;
+              self.user_config.custom_theme.background = c;
             }
           }
         }
         "theme.header" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
-              self.user_config.theme.header= c;
-              self.user_config.custom_theme.header= c;
+              self.user_config.theme.header = c;
+              self.user_config.custom_theme.header = c;
             }
           }
         }
