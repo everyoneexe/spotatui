@@ -3280,6 +3280,12 @@ impl App {
             value: SettingValue::Color(color_to_string(self.user_config.theme.error_text)),
           },
           SettingItem {
+            id: "theme.error_border".to_string(),
+            name: "Error Border Color".to_string(),
+            description: "Border color for error messages".to_string(),
+            value: SettingValue::Color(color_to_string(self.user_config.theme.error_border)),
+          },
+          SettingItem {
             id: "theme.playbar_background".to_string(),
             name: "Playbar Background".to_string(),
             description: "Background color for playbar".to_string(),
@@ -3292,10 +3298,34 @@ impl App {
             value: SettingValue::Color(color_to_string(self.user_config.theme.playbar_progress)),
           },
           SettingItem {
+            id: "theme.playbar_progress_text".to_string(),
+            name: "Playbar Progress Text".to_string(),
+            description: "Color for playbar progress text".to_string(),
+            value: SettingValue::Color(color_to_string(self.user_config.theme.playbar_progress_text)),
+          },
+          SettingItem {
+            id: "theme.playbar_text".to_string(),
+            name: "Playbar Text".to_string(),
+            description: "Color for playbar text".to_string(),
+            value: SettingValue::Color(color_to_string(self.user_config.theme.playbar_text)),
+          },
+          SettingItem {
             id: "theme.highlighted_lyrics".to_string(),
             name: "Lyrics Highlight".to_string(),
             description: "Color for current lyrics line".to_string(),
             value: SettingValue::Color(color_to_string(self.user_config.theme.highlighted_lyrics)),
+          },
+          SettingItem {
+            id: "theme.background".to_string(),
+            name: "Background".to_string(),
+            description: "Color for the background".to_string(),
+            value: SettingValue::Color(color_to_string(self.user_config.theme.background)),
+          },
+          SettingItem {
+            id: "theme.header".to_string(),
+            name: "Header".to_string(),
+            description: "Color for the header".to_string(),
+            value: SettingValue::Color(color_to_string(self.user_config.theme.header)),
           },
         ]
       }
@@ -3709,6 +3739,14 @@ impl App {
             }
           }
         }
+        "theme.error_border" if self.user_config.current_preset == ThemePreset::Custom => {
+          if let SettingValue::Color(v) = &setting.value {
+            if let Ok(c) = parse_theme_item(v) {
+              self.user_config.theme.error_border= c;
+              self.user_config.custom_theme.error_border= c;
+            }
+          }
+        }
         "theme.playbar_background" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
@@ -3725,11 +3763,43 @@ impl App {
             }
           }
         }
+        "theme.playbar_progress_text" if self.user_config.current_preset == ThemePreset::Custom => {
+          if let SettingValue::Color(v) = &setting.value {
+            if let Ok(c) = parse_theme_item(v) {
+              self.user_config.theme.playbar_progress_text = c;
+              self.user_config.custom_theme.playbar_progress_text = c;
+            }
+          }
+        }
+        "theme.playbar_text" if self.user_config.current_preset == ThemePreset::Custom => {
+          if let SettingValue::Color(v) = &setting.value {
+            if let Ok(c) = parse_theme_item(v) {
+              self.user_config.theme.playbar_text= c;
+              self.user_config.custom_theme.playbar_text= c;
+            }
+          }
+        }
         "theme.highlighted_lyrics" if self.user_config.current_preset == ThemePreset::Custom => {
           if let SettingValue::Color(v) = &setting.value {
             if let Ok(c) = parse_theme_item(v) {
               self.user_config.theme.highlighted_lyrics = c;
               self.user_config.custom_theme.highlighted_lyrics = c;
+            }
+          }
+        }
+        "theme.background" if self.user_config.current_preset == ThemePreset::Custom => {
+          if let SettingValue::Color(v) = &setting.value {
+            if let Ok(c) = parse_theme_item(v) {
+              self.user_config.theme.background= c;
+              self.user_config.custom_theme.background= c;
+            }
+          }
+        }
+        "theme.header" if self.user_config.current_preset == ThemePreset::Custom => {
+          if let SettingValue::Color(v) = &setting.value {
+            if let Ok(c) = parse_theme_item(v) {
+              self.user_config.theme.header= c;
+              self.user_config.custom_theme.header= c;
             }
           }
         }
@@ -3740,7 +3810,7 @@ impl App {
 
   /// Updates the colour RGB entries when switching through the presets in themes
   pub fn sync_theme_color_settings(&mut self, theme: &crate::core::user_config::Theme) {
-    let mappings: [(&str, ratatui::style::Color); 11] = [
+    let mappings: [(&str, ratatui::style::Color); 16] = [
       ("theme.active", theme.active),
       ("theme.banner", theme.banner),
       ("theme.hint", theme.hint),
@@ -3749,9 +3819,14 @@ impl App {
       ("theme.inactive", theme.inactive),
       ("theme.text", theme.text),
       ("theme.error_text", theme.error_text),
+      ("theme.error_border", theme.error_border),
       ("theme.playbar_background", theme.playbar_background),
       ("theme.playbar_progress", theme.playbar_progress),
+      ("theme.playbar_progress_text", theme.playbar_progress_text),
+      ("theme.playbar_text", theme.playbar_text),
       ("theme.highlighted_lyrics", theme.highlighted_lyrics),
+      ("theme.background", theme.background),
+      ("theme.header", theme.header),
     ];
     for setting in &mut self.settings_items {
       if let Some((_, color)) = mappings.iter().find(|(id, _)| *id == setting.id) {
