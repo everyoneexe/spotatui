@@ -1,16 +1,26 @@
 # Changelog
 
-## [Unreleased]
+## [v0.38.2] - 2026-05-10
+
+### Added
+
+- **Keep System Awake during playback**: Added a `behavior.keepawake_enabled` setting, enabled by default, that prevents idle sleep, system sleep, and display suspend while music is playing ([#242](https://github.com/LargeModGames/spotatui/pull/242)).
+- **Theme customization from Settings**: Added full theme color editing in Settings, a `Custom` theme preset, live preset previews, and config persistence for custom theme values ([#232](https://github.com/LargeModGames/spotatui/pull/232)).
 
 ### Fixed
 
 - **Native streaming metadata freshness**: Kept native player track metadata authoritative while Spotify's playback API is still catching up, preventing stale API responses from overwriting the current native track and suppressing duplicate song-count, lyrics, and saved-track checks for stale items.
+- **Recommendation search UI freeze**: Reduced recommendation result loading latency by fetching full track details concurrently and avoiding holding the app lock during network calls ([#239](https://github.com/LargeModGames/spotatui/pull/239)).
+- **Theme preset persistence and upgrades**: Fixed theme preset display, saving/loading of edited theme values, and backwards compatibility for existing configs with individual theme colors ([#232](https://github.com/LargeModGames/spotatui/pull/232)).
+- **Nix flake macOS build**: Fixed the flake build on `aarch64-darwin` by separating Linux-only dependencies and adding macOS-specific SDK/PortAudio inputs ([#233](https://github.com/LargeModGames/spotatui/pull/233)).
 
 ### Internal
 
 - **Runtime module split**: Moved authentication, runtime startup, TUI runner, native player event handling, and shared playback metadata extraction out of the monolithic `main.rs` into focused `core`, `infra`, and `tui` modules.
 - **Playback integration metadata sharing**: Centralized playback snapshot construction for Discord RPC, MPRIS, and macOS media integrations so native streaming and Spotify API metadata are resolved consistently.
 - **Module path cleanup**: Updated imports to use the current `core`, `infra`, and `tui` module paths after the runtime split.
+- **Dependency maintenance**: Bumped `mpris-server` and the grouped Rust minor dependency set ([#226](https://github.com/LargeModGames/spotatui/pull/226), [#227](https://github.com/LargeModGames/spotatui/pull/227), [#236](https://github.com/LargeModGames/spotatui/pull/236)).
+
 
 ## [v0.38.1] - 2026-04-24
 
