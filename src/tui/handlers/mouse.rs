@@ -1,4 +1,4 @@
-use super::{library, playbar, playlist, settings, track_table};
+use super::{common_key_events, library, playbar, playlist, settings, track_table};
 use crate::core::app::{
   ActiveBlock, App, RouteId, SettingValue, SettingsCategory, LIBRARY_OPTIONS,
 };
@@ -7,6 +7,7 @@ use crate::core::layout::{
 };
 use crate::tui::event::Key;
 use crate::tui::ui::player::playbar_control_at;
+use crate::tui::ui::tables::table_scroll_offset;
 use crate::tui::ui::util::{get_main_layout_margin, SMALL_TERMINAL_WIDTH};
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -82,10 +83,8 @@ pub fn handler(mouse: MouseEvent, app: &mut App) {
     return;
   }
 
-  if current_route_id == RouteId::TrackTable
-    && rect_contains(areas.content, mouse.column, mouse.row)
-  {
-    handle_song_table_mouse(mouse, areas.content, app);
+  if rect_contains(areas.content, mouse.column, mouse.row) {
+    handle_content_table_mouse(mouse, areas.content, current_route_id, app);
   }
 }
 
@@ -142,6 +141,50 @@ fn handle_song_table_mouse(mouse: MouseEvent, table_area: Rect, app: &mut App) {
     MouseEventKind::Down(MouseButton::Left) => {
       focus_song_table(app);
       select_clicked_song(mouse.row, table_area, app);
+    }
+    _ => {}
+  }
+}
+
+fn handle_content_table_mouse(
+  mouse: MouseEvent,
+  table_area: Rect,
+  route_id: RouteId,
+  app: &mut App,
+) {
+  let Some(active_block) = common_key_events::content_active_block_for_route(&route_id) else {
+    return;
+  };
+
+  if active_block == ActiveBlock::TrackTable {
+    handle_song_table_mouse(mouse, table_area, app);
+    return;
+  }
+
+  if !matches!(
+    mouse.kind,
+    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(MouseButton::Left)
+  ) {
+    return;
+  }
+
+  let item_count = content_table_item_count(active_block, app);
+  if item_count == 0 {
+    return;
+  }
+
+  match mouse.kind {
+    MouseEventKind::ScrollDown => {
+      focus_content_table(active_block, app);
+      super::handle_block_events(Key::Down, app);
+    }
+    MouseEventKind::ScrollUp => {
+      focus_content_table(active_block, app);
+      super::handle_block_events(Key::Up, app);
+    }
+    MouseEventKind::Down(MouseButton::Left) => {
+      focus_content_table(active_block, app);
+      select_clicked_content_table_item(active_block, mouse.row, table_area, item_count, app);
     }
     _ => {}
   }
@@ -367,6 +410,10 @@ fn focus_song_table(app: &mut App) {
   app.set_current_route_state(Some(ActiveBlock::TrackTable), Some(ActiveBlock::TrackTable));
 }
 
+fn focus_content_table(active_block: ActiveBlock, app: &mut App) {
+  app.set_current_route_state(Some(active_block), Some(active_block));
+}
+
 fn focus_playbar(block: ActiveBlock, app: &mut App) {
   app.set_current_route_state(Some(block), Some(block));
 }
@@ -459,6 +506,115 @@ fn select_clicked_song(mouse_row: u16, table_area: Rect, app: &mut App) {
   track_table::handler(Key::Enter, app);
 }
 
+fn select_clicked_content_table_item(
+  active_block: ActiveBlock,
+  mouse_row: u16,
+  table_area: Rect,
+  item_count: usize,
+  app: &mut App,
+) {
+  let selected_index =
+    content_table_selected_index(active_block, app).min(item_count.saturating_sub(1));
+
+  let Some(clicked_index) =
+    table_item_index_from_click(table_area, mouse_row, selected_index, item_count)
+  else {
+    return;
+  };
+
+  let was_selected = content_table_selected_index(active_block, app) == clicked_index;
+  set_content_table_selected_index(active_block, clicked_index, app);
+  if was_selected {
+    super::handle_block_events(Key::Enter, app);
+  }
+}
+
+fn content_table_item_count(active_block: ActiveBlock, app: &App) -> usize {
+  match active_block {
+    ActiveBlock::AlbumList => app
+      .library
+      .saved_albums
+      .get_results(None)
+      .map(|albums| albums.items.len())
+      .unwrap_or(0),
+    ActiveBlock::AlbumTracks => match app.album_table_context {
+      crate::core::app::AlbumTableContext::Full => app
+        .selected_album_full
+        .as_ref()
+        .map(|album| album.album.tracks.items.len())
+        .unwrap_or(0),
+      crate::core::app::AlbumTableContext::Simplified => app
+        .selected_album_simplified
+        .as_ref()
+        .map(|album| album.tracks.items.len())
+        .unwrap_or(0),
+    },
+    ActiveBlock::RecentlyPlayed => app
+      .recently_played
+      .result
+      .as_ref()
+      .map(|recently_played| recently_played.items.len())
+      .unwrap_or(0),
+    ActiveBlock::Artists => app
+      .library
+      .saved_artists
+      .get_results(None)
+      .map(|artists| artists.items.len())
+      .unwrap_or(0),
+    ActiveBlock::Podcasts => app
+      .library
+      .saved_shows
+      .get_results(None)
+      .map(|shows| shows.items.len())
+      .unwrap_or(0),
+    ActiveBlock::EpisodeTable => app
+      .library
+      .show_episodes
+      .get_results(None)
+      .map(|episodes| episodes.items.len())
+      .unwrap_or(0),
+    _ => 0,
+  }
+}
+
+fn content_table_selected_index(active_block: ActiveBlock, app: &App) -> usize {
+  match active_block {
+    ActiveBlock::AlbumList => app.album_list_index,
+    ActiveBlock::AlbumTracks => match app.album_table_context {
+      crate::core::app::AlbumTableContext::Full => app.saved_album_tracks_index,
+      crate::core::app::AlbumTableContext::Simplified => app
+        .selected_album_simplified
+        .as_ref()
+        .map(|album| album.selected_index)
+        .unwrap_or(0),
+    },
+    ActiveBlock::RecentlyPlayed => app.recently_played.index,
+    ActiveBlock::Artists => app.artists_list_index,
+    ActiveBlock::Podcasts => app.shows_list_index,
+    ActiveBlock::EpisodeTable => app.episode_list_index,
+    _ => 0,
+  }
+}
+
+fn set_content_table_selected_index(active_block: ActiveBlock, index: usize, app: &mut App) {
+  match active_block {
+    ActiveBlock::AlbumList => app.album_list_index = index,
+    ActiveBlock::AlbumTracks => match app.album_table_context {
+      crate::core::app::AlbumTableContext::Full => app.saved_album_tracks_index = index,
+      crate::core::app::AlbumTableContext::Simplified => {
+        if let Some(album) = &mut app.selected_album_simplified {
+          album.selected_index = index;
+        }
+      }
+    },
+    ActiveBlock::RecentlyPlayed => app.recently_played.index = index,
+    ActiveBlock::Artists => app.artists_list_index = index,
+    ActiveBlock::Podcasts => app.shows_list_index = index,
+    ActiveBlock::EpisodeTable => app.episode_list_index = index,
+    _ => {}
+  }
+}
+
 fn list_item_index_from_click(
   list_area: Rect,
   mouse_row: u16,
@@ -516,12 +672,7 @@ fn table_item_index_from_click(
     return None;
   }
 
-  let offset = table_area
-    .height
-    .checked_sub(5)
-    .map(|height| height as usize)
-    .map(|visible_rows| (selected_index / visible_rows) * visible_rows)
-    .unwrap_or(0);
+  let offset = table_scroll_offset(selected_index, visible_rows);
 
   let row_index = (mouse_row - first_data_row) as usize;
   let row_index = row_index.min(visible_rows.saturating_sub(1));
@@ -830,7 +981,9 @@ fn rect_contains(rect: Rect, x: u16, y: u16) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::core::app::{PlaylistFolderItem, RouteId, SettingValue, SettingsCategory};
+  use crate::core::app::{
+    AlbumTableContext, PlaylistFolderItem, RouteId, SelectedAlbum, SettingValue, SettingsCategory,
+  };
   use crate::tui::ui::player::PlaybarControl;
   use chrono::{Duration, Utc};
   use crossterm::event::{KeyModifiers, MouseEvent};
@@ -838,7 +991,8 @@ mod tests {
   use rspotify::model::context::{Actions, CurrentPlaybackContext};
   use rspotify::model::enums::{DeviceType, RepeatState};
   use rspotify::model::{
-    CurrentlyPlayingType, Device, FullTrack, PlayableItem, SimplifiedAlbum, SimplifiedArtist,
+    AlbumId, AlbumType, CurrentlyPlayingType, DatePrecision, Device, FullAlbum, FullTrack, Page,
+    PlayableItem, SavedAlbum, SimplifiedAlbum, SimplifiedArtist, SimplifiedTrack,
   };
   use std::collections::HashMap;
 
@@ -866,6 +1020,55 @@ mod tests {
         current_id: 0,
       },
     ];
+  }
+
+  #[allow(deprecated)]
+  fn saved_album(index: usize) -> SavedAlbum {
+    let id = format!("{index:0>22}");
+    SavedAlbum {
+      added_at: Utc::now(),
+      album: FullAlbum {
+        artists: vec![SimplifiedArtist {
+          name: format!("Artist {index}"),
+          ..Default::default()
+        }],
+        album_type: AlbumType::Album,
+        available_markets: None,
+        copyrights: vec![],
+        external_ids: HashMap::new(),
+        external_urls: HashMap::new(),
+        genres: vec![],
+        href: format!("https://example.com/albums/{id}"),
+        id: AlbumId::from_id(&id).expect("valid album id").into_static(),
+        images: vec![],
+        name: format!("Album {index}"),
+        popularity: 0,
+        release_date: "2026-01-01".to_string(),
+        release_date_precision: DatePrecision::Day,
+        tracks: Page {
+          href: format!("https://example.com/albums/{id}/tracks"),
+          items: Vec::<SimplifiedTrack>::new(),
+          limit: 0,
+          next: None,
+          offset: 0,
+          previous: None,
+          total: 0,
+        },
+        label: None,
+      },
+    }
+  }
+
+  fn with_saved_albums(app: &mut App, count: usize) {
+    app.library.saved_albums.add_pages(Page {
+      href: "https://example.com/me/albums".to_string(),
+      items: (0..count).map(saved_album).collect(),
+      limit: count as u32,
+      next: None,
+      offset: 0,
+      previous: None,
+      total: count as u32,
+    });
   }
 
   fn open_settings(app: &mut App) {
@@ -1426,6 +1629,137 @@ mod tests {
   }
 
   #[test]
+  fn click_in_saved_albums_selects_row() {
+    let mut app = App::default();
+    app.size = Size {
+      width: 160,
+      height: 50,
+    };
+    app.push_navigation_stack(RouteId::AlbumList, ActiveBlock::AlbumList);
+    with_saved_albums(&mut app, 3);
+    app.album_list_index = 0;
+
+    let areas = main_layout_areas(&app).expect("layout areas");
+    let x = areas.content.x + 1;
+    let y = areas.content.y + 3;
+
+    handler(
+      mouse_event(MouseEventKind::Down(MouseButton::Left), x, y),
+      &mut app,
+    );
+
+    assert_eq!(app.album_list_index, 1);
+    let current_route = app.get_current_route();
+    assert_eq!(current_route.active_block, ActiveBlock::AlbumList);
+  }
+
+  #[test]
+  fn scroll_over_saved_albums_changes_selection() {
+    let mut app = App::default();
+    app.size = Size {
+      width: 160,
+      height: 50,
+    };
+    app.push_navigation_stack(RouteId::AlbumList, ActiveBlock::AlbumList);
+    with_saved_albums(&mut app, 3);
+    app.album_list_index = 0;
+
+    let areas = main_layout_areas(&app).expect("layout areas");
+    let x = areas.content.x + 1;
+    let y = areas.content.y + 2;
+
+    handler(mouse_event(MouseEventKind::ScrollDown, x, y), &mut app);
+    assert_eq!(app.album_list_index, 1);
+
+    handler(mouse_event(MouseEventKind::ScrollUp, x, y), &mut app);
+    assert_eq!(app.album_list_index, 0);
+
+    let current_route = app.get_current_route();
+    assert_eq!(current_route.active_block, ActiveBlock::AlbumList);
+  }
+
+  #[test]
+  fn content_table_selection_helpers_cover_supported_blocks() {
+    let mut app = App::default();
+    app.album_list_index = 2;
+    app.saved_album_tracks_index = 3;
+    app.recently_played.index = 4;
+    app.artists_list_index = 5;
+    app.shows_list_index = 6;
+    app.episode_list_index = 7;
+
+    assert_eq!(
+      content_table_selected_index(ActiveBlock::AlbumList, &app),
+      2
+    );
+    assert_eq!(
+      content_table_selected_index(ActiveBlock::AlbumTracks, &app),
+      3
+    );
+    assert_eq!(
+      content_table_selected_index(ActiveBlock::RecentlyPlayed, &app),
+      4
+    );
+    assert_eq!(content_table_selected_index(ActiveBlock::Artists, &app), 5);
+    assert_eq!(content_table_selected_index(ActiveBlock::Podcasts, &app), 6);
+    assert_eq!(
+      content_table_selected_index(ActiveBlock::EpisodeTable, &app),
+      7
+    );
+
+    set_content_table_selected_index(ActiveBlock::AlbumList, 8, &mut app);
+    set_content_table_selected_index(ActiveBlock::AlbumTracks, 9, &mut app);
+    set_content_table_selected_index(ActiveBlock::RecentlyPlayed, 10, &mut app);
+    set_content_table_selected_index(ActiveBlock::Artists, 11, &mut app);
+    set_content_table_selected_index(ActiveBlock::Podcasts, 12, &mut app);
+    set_content_table_selected_index(ActiveBlock::EpisodeTable, 13, &mut app);
+
+    assert_eq!(app.album_list_index, 8);
+    assert_eq!(app.saved_album_tracks_index, 9);
+    assert_eq!(app.recently_played.index, 10);
+    assert_eq!(app.artists_list_index, 11);
+    assert_eq!(app.shows_list_index, 12);
+    assert_eq!(app.episode_list_index, 13);
+  }
+
+  #[test]
+  fn content_table_selection_helpers_update_simplified_album_tracks() {
+    let mut app = App::default();
+    app.album_table_context = AlbumTableContext::Simplified;
+    app.selected_album_simplified = Some(SelectedAlbum {
+      album: SimplifiedAlbum {
+        name: "Album".to_string(),
+        ..Default::default()
+      },
+      tracks: Page {
+        href: "https://example.com/albums/1/tracks".to_string(),
+        items: Vec::<SimplifiedTrack>::new(),
+        limit: 0,
+        next: None,
+        offset: 0,
+        previous: None,
+        total: 0,
+      },
+      selected_index: 1,
+    });
+
+    assert_eq!(
+      content_table_selected_index(ActiveBlock::AlbumTracks, &app),
+      1
+    );
+
+    set_content_table_selected_index(ActiveBlock::AlbumTracks, 2, &mut app);
+
+    assert_eq!(
+      app
+        .selected_album_simplified
+        .as_ref()
+        .map(|album| album.selected_index),
+      Some(2)
+    );
+  }
+
+  #[test]
   fn click_outside_playlist_is_ignored() {
     let mut app = App::default();
     app.size = Size {
@@ -1489,7 +1823,7 @@ mod tests {
     let first = table_item_index_from_click(area, 2, selected_index, item_count);
     let second = table_item_index_from_click(area, 3, selected_index, item_count);
 
-    assert_eq!(first, Some(14));
-    assert_eq!(second, Some(15));
+    assert_eq!(first, Some(9));
+    assert_eq!(second, Some(10));
   }
 }
