@@ -48,45 +48,73 @@ pub async fn prefetch_saved_tracks_page_task(
   spotify: AuthCodePkceSpotify,
   app: Arc<Mutex<App>>,
   limit: u32,
-  offset: u32,
+  mut offset: u32,
   generation: u64,
 ) {
-  let should_fetch = {
-    let app = app.lock().await;
-    app.saved_tracks_prefetch_generation == generation
-      && app
-        .library
-        .saved_tracks
-        .page_index_for_offset(offset)
-        .is_none()
-  };
+  loop {
+    let should_fetch = {
+      let mut app = app.lock().await;
+      app.saved_tracks_prefetch_generation == generation
+        && app
+          .library
+          .saved_tracks
+          .page_index_for_offset(offset)
+          .is_none()
+        && app.saved_tracks_prefetch_in_flight.insert(offset)
+    };
 
-  if !should_fetch {
-    return;
+    if !should_fetch {
+      return;
+    }
+
+    let query = vec![("limit", limit.to_string()), ("offset", offset.to_string())];
+    let Ok(page) = spotify_get_typed_compat_for::<Page<rspotify::model::SavedTrack>>(
+      &spotify,
+      "me/tracks",
+      &query,
+    )
+    .await
+    else {
+      let mut app_guard = app.lock().await;
+      app_guard.saved_tracks_prefetch_in_flight.remove(&offset);
+      return;
+    };
+
+    if page.items.is_empty() {
+      let mut app_guard = app.lock().await;
+      app_guard.saved_tracks_prefetch_in_flight.remove(&offset);
+      return;
+    }
+
+    let next_offset = page.next.as_ref().map(|_| page.offset + page.limit);
+    let mut app_guard = app.lock().await;
+    app_guard.saved_tracks_prefetch_in_flight.remove(&offset);
+    if app_guard.saved_tracks_prefetch_generation != generation {
+      return;
+    }
+
+    populate_liked_song_ids_from_saved_tracks(&mut app_guard.liked_song_ids_set, &page);
+    app_guard.library.saved_tracks.upsert_page_by_offset(page);
+    app_guard.set_saved_tracks_to_table_continuous();
+    let Some(candidate_next_offset) = next_offset else {
+      return;
+    };
+    let should_prefetch_next = app_guard
+      .library
+      .saved_tracks
+      .page_index_for_offset(candidate_next_offset)
+      .is_none()
+      && !app_guard
+        .saved_tracks_prefetch_in_flight
+        .contains(&candidate_next_offset);
+    drop(app_guard);
+
+    if should_prefetch_next {
+      offset = candidate_next_offset;
+    } else {
+      return;
+    }
   }
-
-  let query = vec![("limit", limit.to_string()), ("offset", offset.to_string())];
-  let Ok(page) = spotify_get_typed_compat_for::<Page<rspotify::model::SavedTrack>>(
-    &spotify,
-    "me/tracks",
-    &query,
-  )
-  .await
-  else {
-    return;
-  };
-
-  if page.items.is_empty() {
-    return;
-  }
-
-  let mut app_guard = app.lock().await;
-  if app_guard.saved_tracks_prefetch_generation != generation {
-    return;
-  }
-
-  populate_liked_song_ids_from_saved_tracks(&mut app_guard.liked_song_ids_set, &page);
-  app_guard.library.saved_tracks.upsert_page_by_offset(page);
 }
 
 pub async fn prefetch_playlist_tracks_page_task(
@@ -94,42 +122,70 @@ pub async fn prefetch_playlist_tracks_page_task(
   app: Arc<Mutex<App>>,
   limit: u32,
   playlist_id: PlaylistId<'static>,
-  offset: u32,
+  mut offset: u32,
   generation: u64,
 ) {
-  let should_fetch = {
-    let app = app.lock().await;
-    app.playlist_tracks_prefetch_generation == generation
-      && app.is_playlist_track_table_active_for(&playlist_id)
-      && app
-        .playlist_track_pages
-        .page_index_for_offset(offset)
-        .is_none()
-  };
+  loop {
+    let should_fetch = {
+      let mut app = app.lock().await;
+      app.playlist_tracks_prefetch_generation == generation
+        && app.is_playlist_track_table_active_for(&playlist_id)
+        && app
+          .playlist_track_pages
+          .page_index_for_offset(offset)
+          .is_none()
+        && app.playlist_tracks_prefetch_in_flight.insert(offset)
+    };
 
-  if !should_fetch {
-    return;
+    if !should_fetch {
+      return;
+    }
+
+    let path = format!("playlists/{}/items", playlist_id.id());
+    let query = vec![("limit", limit.to_string()), ("offset", offset.to_string())];
+    let Ok(page) =
+      spotify_get_typed_compat_for::<Page<PlaylistItem>>(&spotify, &path, &query).await
+    else {
+      let mut app_guard = app.lock().await;
+      app_guard.playlist_tracks_prefetch_in_flight.remove(&offset);
+      return;
+    };
+
+    if page.items.is_empty() {
+      let mut app_guard = app.lock().await;
+      app_guard.playlist_tracks_prefetch_in_flight.remove(&offset);
+      return;
+    }
+
+    let next_offset = page.next.as_ref().map(|_| page.offset + page.limit);
+    let mut app_guard = app.lock().await;
+    app_guard.playlist_tracks_prefetch_in_flight.remove(&offset);
+    if app_guard.playlist_tracks_prefetch_generation != generation
+      || !app_guard.is_playlist_track_table_active_for(&playlist_id)
+    {
+      return;
+    }
+
+    app_guard.playlist_track_pages.upsert_page_by_offset(page);
+    app_guard.set_playlist_tracks_to_table_continuous();
+    let Some(candidate_next_offset) = next_offset else {
+      return;
+    };
+    let should_prefetch_next = app_guard
+      .playlist_track_pages
+      .page_index_for_offset(candidate_next_offset)
+      .is_none()
+      && !app_guard
+        .playlist_tracks_prefetch_in_flight
+        .contains(&candidate_next_offset);
+    drop(app_guard);
+
+    if should_prefetch_next {
+      offset = candidate_next_offset;
+    } else {
+      return;
+    }
   }
-
-  let path = format!("playlists/{}/items", playlist_id.id());
-  let query = vec![("limit", limit.to_string()), ("offset", offset.to_string())];
-  let Ok(page) = spotify_get_typed_compat_for::<Page<PlaylistItem>>(&spotify, &path, &query).await
-  else {
-    return;
-  };
-
-  if page.items.is_empty() {
-    return;
-  }
-
-  let mut app_guard = app.lock().await;
-  if app_guard.playlist_tracks_prefetch_generation != generation
-    || !app_guard.is_playlist_track_table_active_for(&playlist_id)
-  {
-    return;
-  }
-
-  app_guard.playlist_track_pages.upsert_page_by_offset(page);
 }
 
 pub trait LibraryNetwork {
@@ -358,6 +414,9 @@ impl LibraryNetwork for Network {
     {
       Ok(playlist_tracks) => {
         let mut app = self.app.lock().await;
+        app
+          .playlist_tracks_prefetch_in_flight
+          .remove(&playlist_offset);
         if app.playlist_tracks_prefetch_generation != generation
           || !app.is_playlist_track_table_active_for(&playlist_id)
         {
@@ -367,7 +426,7 @@ impl LibraryNetwork for Network {
         let playlist_tracks_index = app
           .playlist_track_pages
           .upsert_page_by_offset(playlist_tracks);
-        app.show_playlist_tracks_page_at_index(playlist_tracks_index);
+        app.set_playlist_tracks_to_table_continuous();
 
         let next_offset = app.next_missing_playlist_tracks_offset(playlist_tracks_index);
         let generation = app.playlist_tracks_prefetch_generation;
@@ -379,12 +438,18 @@ impl LibraryNetwork for Network {
         }
       }
       Err(e) => {
+        let mut app = self.app.lock().await;
+        app
+          .playlist_tracks_prefetch_in_flight
+          .remove(&playlist_offset);
+        drop(app);
         self.handle_error(anyhow!(e)).await;
       }
     }
   }
 
   async fn get_current_user_saved_tracks(&mut self, offset: Option<u32>) {
+    let requested_offset = offset.unwrap_or(0);
     let generation = {
       let app = self.app.lock().await;
       app.saved_tracks_prefetch_generation
@@ -404,13 +469,16 @@ impl LibraryNetwork for Network {
     {
       Ok(saved_tracks) => {
         let mut app = self.app.lock().await;
+        app
+          .saved_tracks_prefetch_in_flight
+          .remove(&requested_offset);
         if app.saved_tracks_prefetch_generation != generation {
           return;
         }
 
         populate_liked_song_ids_from_saved_tracks(&mut app.liked_song_ids_set, &saved_tracks);
         let saved_tracks_index = app.library.saved_tracks.upsert_page_by_offset(saved_tracks);
-        app.show_saved_tracks_page_at_index(saved_tracks_index);
+        app.set_saved_tracks_to_table_continuous();
 
         let next_offset = app.next_missing_saved_tracks_offset(saved_tracks_index);
         let generation = app.saved_tracks_prefetch_generation;
@@ -421,6 +489,11 @@ impl LibraryNetwork for Network {
         }
       }
       Err(e) => {
+        let mut app = self.app.lock().await;
+        app
+          .saved_tracks_prefetch_in_flight
+          .remove(&requested_offset);
+        drop(app);
         self.handle_error(anyhow!(e)).await;
       }
     }
