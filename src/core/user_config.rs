@@ -10,6 +10,9 @@ use std::{
 const FILE_NAME: &str = "config.yml";
 const CONFIG_DIR: &str = ".config";
 const APP_CONFIG_DIR: &str = "spotatui";
+pub const DEFAULT_TICK_RATE_MILLISECONDS: u64 = 250;
+pub const DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS: u64 = 16;
+pub const MAX_TICK_RATE_MILLISECONDS: u64 = 999;
 #[cfg(feature = "cover-art")]
 pub const MIN_PLAYBAR_COVER_ART_SIZE_PERCENT: u16 = 25;
 #[cfg(feature = "cover-art")]
@@ -29,6 +32,18 @@ pub fn normalize_playbar_cover_art_size_percent(value: i64) -> u16 {
     MIN_PLAYBAR_COVER_ART_SIZE_PERCENT as i64,
     MAX_PLAYBAR_COVER_ART_SIZE_PERCENT as i64,
   ) as u16
+}
+
+pub fn validate_tick_rate_milliseconds(value: u64, label: &str) -> Result<u64> {
+  if (1..=MAX_TICK_RATE_MILLISECONDS).contains(&value) {
+    Ok(value)
+  } else {
+    Err(anyhow!("{label} must be between 1 and 999 milliseconds"))
+  }
+}
+
+pub fn normalize_tick_rate_milliseconds(value: i64) -> u64 {
+  value.clamp(1, MAX_TICK_RATE_MILLISECONDS as i64) as u64
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -658,6 +673,7 @@ pub struct BehaviorConfigString {
   pub volume_increment: Option<u8>,
   pub volume_percent: Option<u8>,
   pub tick_rate_milliseconds: Option<u64>,
+  pub animation_tick_rate_milliseconds: Option<u64>,
   pub enable_text_emphasis: Option<bool>,
   pub show_loading_indicator: Option<bool>,
   pub enforce_wide_search_bar: Option<bool>,
@@ -701,6 +717,7 @@ pub struct BehaviorConfig {
   pub volume_increment: u8,
   pub volume_percent: u8,
   pub tick_rate_milliseconds: u64,
+  pub animation_tick_rate_milliseconds: u64,
   pub enable_text_emphasis: bool,
   pub show_loading_indicator: bool,
   pub enforce_wide_search_bar: bool,
@@ -818,7 +835,8 @@ impl UserConfig {
         seek_milliseconds: 5 * 1000,
         volume_increment: 10,
         volume_percent: 100,
-        tick_rate_milliseconds: 16,
+        tick_rate_milliseconds: DEFAULT_TICK_RATE_MILLISECONDS,
+        animation_tick_rate_milliseconds: DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
         enable_text_emphasis: true,
         show_loading_indicator: true,
         enforce_wide_search_bar: false,
@@ -1015,12 +1033,32 @@ impl UserConfig {
       self.behavior.volume_percent = volume.min(100);
     }
 
-    if let Some(tick_rate) = behavior_config.tick_rate_milliseconds {
-      if tick_rate >= 1000 {
-        return Err(anyhow!("Tick rate must be below 1000"));
+    let loaded_tick_rate = behavior_config.tick_rate_milliseconds;
+    let loaded_animation_tick_rate = behavior_config.animation_tick_rate_milliseconds;
+
+    if let Some(tick_rate) = loaded_tick_rate {
+      let tick_rate = validate_tick_rate_milliseconds(tick_rate, "Tick rate")?;
+      // Before animation ticks existed, save_config wrote the old 16ms default
+      // into user configs. Treat the legacy 16ms normal tick as the old default
+      // when animation ticks are absent or still equal to the animation default,
+      // so upgraded users get the new normal UI cadence without manual edits.
+      self.behavior.tick_rate_milliseconds = if tick_rate
+        == DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS
+        && loaded_animation_tick_rate
+          .map(|animation_tick_rate| {
+            animation_tick_rate == DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS
+          })
+          .unwrap_or(true)
+      {
+        DEFAULT_TICK_RATE_MILLISECONDS
       } else {
-        self.behavior.tick_rate_milliseconds = tick_rate;
-      }
+        tick_rate
+      };
+    }
+
+    if let Some(tick_rate) = loaded_animation_tick_rate {
+      self.behavior.animation_tick_rate_milliseconds =
+        validate_tick_rate_milliseconds(tick_rate, "Animation tick rate")?;
     }
 
     if let Some(text_emphasis) = behavior_config.enable_text_emphasis {
@@ -1218,6 +1256,7 @@ impl UserConfig {
       volume_increment: Some(self.behavior.volume_increment),
       volume_percent: Some(self.behavior.volume_percent),
       tick_rate_milliseconds: Some(self.behavior.tick_rate_milliseconds),
+      animation_tick_rate_milliseconds: Some(self.behavior.animation_tick_rate_milliseconds),
       enable_text_emphasis: Some(self.behavior.enable_text_emphasis),
       show_loading_indicator: Some(self.behavior.show_loading_indicator),
       enforce_wide_search_bar: Some(self.behavior.enforce_wide_search_bar),
@@ -1562,6 +1601,67 @@ mod tests {
     // Missing field defaults to None (not overriding the config default)
     let config: BehaviorConfigString = serde_yaml::from_str("{}").unwrap();
     assert_eq!(config.startup_behavior, None);
+  }
+
+  #[test]
+  fn tick_rates_load_defaults_explicit_values_and_legacy_defaults() {
+    use super::{
+      BehaviorConfigString, UserConfig, DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
+      DEFAULT_TICK_RATE_MILLISECONDS,
+    };
+
+    for (yaml, expected_tick_rate, expected_animation_tick_rate) in [
+      (
+        "",
+        DEFAULT_TICK_RATE_MILLISECONDS,
+        DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
+      ),
+      (
+        "tick_rate_milliseconds: 500\nanimation_tick_rate_milliseconds: 20",
+        500,
+        20,
+      ),
+      (
+        "tick_rate_milliseconds: 100",
+        100,
+        DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
+      ),
+      (
+        "tick_rate_milliseconds: 16",
+        DEFAULT_TICK_RATE_MILLISECONDS,
+        DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
+      ),
+      (
+        "tick_rate_milliseconds: 16\nanimation_tick_rate_milliseconds: 16",
+        DEFAULT_TICK_RATE_MILLISECONDS,
+        DEFAULT_ANIMATION_TICK_RATE_MILLISECONDS,
+      ),
+    ] {
+      let behavior: BehaviorConfigString = serde_yaml::from_str(yaml).unwrap();
+      let mut config = UserConfig::new();
+      config.load_behaviorconfig(behavior).unwrap();
+
+      assert_eq!(config.behavior.tick_rate_milliseconds, expected_tick_rate);
+      assert_eq!(
+        config.behavior.animation_tick_rate_milliseconds,
+        expected_animation_tick_rate
+      );
+    }
+  }
+
+  #[test]
+  fn zero_tick_rates_are_rejected() {
+    use super::{BehaviorConfigString, UserConfig};
+
+    for yaml in [
+      "tick_rate_milliseconds: 0",
+      "animation_tick_rate_milliseconds: 0",
+    ] {
+      let behavior: BehaviorConfigString = serde_yaml::from_str(yaml).unwrap();
+      let mut config = UserConfig::new();
+
+      assert!(config.load_behaviorconfig(behavior).is_err());
+    }
   }
 
   #[cfg(feature = "cover-art")]
