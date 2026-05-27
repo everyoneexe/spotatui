@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Playlist track search**: Added playlist-internal track search from playlist track tables with `<Ctrl+f>`, client-side matching across track title, artists, and album, loading feedback while large playlists are scanned, and `q`/the configured back key to clear the active playlist filter and restore the cached playlist view ([#198](https://github.com/LargeModGames/spotatui/issues/198)).
+
 ### Fixed
 
 - **Spotify auth retry path**: Centralized authenticated Spotify API requests behind a shared refresh-and-retry flow so expired access tokens are handled consistently across playback, library, search, recommendation, metadata, and user calls.
