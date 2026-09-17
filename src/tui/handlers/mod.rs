@@ -29,6 +29,7 @@ mod mouse;
 mod party;
 mod playbar;
 mod playlist;
+mod playlist_sync;
 mod plugin_screen;
 mod podcasts;
 mod queue_menu;
@@ -570,6 +571,9 @@ fn handle_block_events(key: Key, app: &mut App) {
     ActiveBlock::Stats => {
       stats::handler(key, app);
     }
+    ActiveBlock::PlaylistSync => {
+      playlist_sync::handler(key, app);
+    }
     #[cfg(feature = "ai-dj")]
     ActiveBlock::AiDj => {
       ai_dj::handler(key, app);
@@ -696,6 +700,29 @@ mod tests {
     let mut app = App::default();
     app.push_navigation_stack(RouteId::Friends, ActiveBlock::Friends);
     app
+  }
+
+  #[test]
+  fn keys_on_the_playlist_sync_block_reach_its_handler() {
+    use crate::core::playlist_sync::{Endpoint, Link};
+    let mut app = App::default_connected();
+    app.set_playlist_sync_links(vec![Link {
+      id: "aaaaaaaaaaaa".to_string(),
+      master: Endpoint {
+        source: crate::core::source::Source::Spotify,
+        playlist_uri: "spotify:playlist:1".to_string(),
+        name: "Road Trip".to_string(),
+      },
+      mirrors: Vec::new(),
+    }]);
+    app.push_navigation_stack(RouteId::PlaylistSync, ActiveBlock::PlaylistSync);
+
+    handle_block_events(Key::Char('D'), &mut app);
+
+    assert_eq!(
+      app.get_current_route().active_block,
+      ActiveBlock::Dialog(crate::core::app::DialogContext::RemovePlaylistSyncLinkConfirm)
+    );
   }
 
   #[test]
