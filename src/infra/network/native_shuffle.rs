@@ -385,6 +385,9 @@ impl Network {
 
     let action = {
       let mut guard = self.app.lock().await;
+      // False when the owner changed between the key press and this handler:
+      // a reorder would then reload Spirc over whoever holds the sink.
+      let drive = guard.native_context_should_drive();
       let player = guard.streaming_player.clone();
       let seek_ms = u32::try_from(guard.song_progress_ms).unwrap_or(u32::MAX);
       let is_playing = guard.native_shuffle_is_playing();
@@ -393,6 +396,8 @@ impl Network {
           Action::Nothing
         } else if !session.fetch_complete {
           session.shuffled = on;
+          Action::Nothing
+        } else if !drive {
           Action::Nothing
         } else {
           let current_uri = session.order.get(session.index).cloned();
@@ -428,6 +433,8 @@ impl Network {
             None => Action::Nothing,
           }
         }
+      } else if !drive {
+        Action::Nothing
       } else if on {
         let context_uri = guard
           .current_playback_context
@@ -578,6 +585,11 @@ impl Network {
   pub(super) async fn reshuffle_native_shuffle_lap(&mut self) {
     let reload = {
       let mut guard = self.app.lock().await;
+      // The owner changed while the lap-wrap event sat on the pump: a reload
+      // would play Spotify over whoever holds the sink.
+      if !guard.native_context_should_drive() {
+        return;
+      }
       let player = guard.streaming_player.clone();
       let seek_ms = u32::try_from(guard.song_progress_ms).unwrap_or(0);
       let is_playing = guard.native_shuffle_is_playing();
@@ -615,13 +627,18 @@ impl Network {
   ) {
     let action = {
       let mut guard = self.app.lock().await;
+      // A decoded start took the sink while the queue drained: a load here
+      // would play Spotify over it.
+      if !guard.native_context_should_drive() {
+        return;
+      }
       // The suspend snapshotted a specific session; a session replaced while the
       // queue drained bumps the generation, so a stale resume must not touch it.
       let session_matches = guard
         .native_spotify_shuffle
         .as_ref()
         .is_some_and(|s| s.generation == generation);
-      match resume_index {
+      let action = match resume_index {
         Some(index) if session_matches => {
           let player = guard.streaming_player.clone();
           match guard.native_spotify_shuffle.as_mut() {
@@ -654,7 +671,13 @@ impl Network {
           guard.set_status_message("Queue finished", 3);
           None
         }
+      };
+      // The suspend cleared the play intent: re-arm it under the same lock as
+      // the owner check, or a stall in the load below never escalates.
+      if action.is_some() {
+        guard.set_native_playback_intent(true);
       }
+      action
     };
     if let Some((player, order, index)) = action {
       player.activate();
@@ -687,9 +710,11 @@ impl Network {
       let result = loop {
         let result = match &kind {
           FullFetch::Playlist(id) => {
-            fetch_playlist_uris(&spotify, &token_cache_path, &app, id).await
+            fetch_playlist_uris(&spotify, &token_cache_path, &app, generation, id).await
           }
-          FullFetch::SavedTracks => fetch_saved_track_uris(&spotify, &token_cache_path, &app).await,
+          FullFetch::SavedTracks => {
+            fetch_saved_track_uris(&spotify, &token_cache_path, &app, generation).await
+          }
         };
         attempt += 1;
         match result {
@@ -708,12 +733,14 @@ impl Network {
 /// Walk a paginated Spotify collection at `path`, mapping each item to a track
 /// URI via `extract` (items yielding `None` are skipped), in native pagination
 /// order and capped at [`MAX_NATIVE_SHUFFLE_TRACKS`]. Returns `(uris,
-/// truncated)`, where `truncated` is true when the cap cut the list short.
+/// truncated)`, where `truncated` is true when the cap cut the list short. An
+/// abandoned walk (its session was cleared or replaced) returns an empty list.
 #[cfg(feature = "streaming")]
 async fn paginate_uris<Item>(
   spotify: &AuthCodePkceSpotify,
   token_cache_path: &Path,
   app: &Arc<Mutex<App>>,
+  generation: u64,
   path: &str,
   extract: impl Fn(&Item) -> Option<String>,
 ) -> anyhow::Result<(Vec<String>, bool)>
@@ -724,6 +751,15 @@ where
   let mut offset = 0u32;
   let mut uris = Vec::new();
   loop {
+    let still_wanted = app
+      .lock()
+      .await
+      .native_spotify_shuffle
+      .as_ref()
+      .is_some_and(|s| s.generation == generation);
+    if !still_wanted {
+      return Ok((Vec::new(), false));
+    }
     let page = spotify_get_typed_compat_for_with_refresh::<Page<Item>>(
       spotify,
       path,
@@ -759,6 +795,7 @@ async fn fetch_playlist_uris(
   spotify: &AuthCodePkceSpotify,
   token_cache_path: &Path,
   app: &Arc<Mutex<App>>,
+  generation: u64,
   playlist_id: &PlaylistId<'static>,
 ) -> anyhow::Result<(Vec<String>, bool)> {
   let path = format!("playlists/{}/items", playlist_id.id());
@@ -766,6 +803,7 @@ async fn fetch_playlist_uris(
     spotify,
     token_cache_path,
     app,
+    generation,
     &path,
     |item: &PlaylistItem| match item.item.as_ref() {
       Some(PlayableItem::Track(track)) => track.id.as_ref().map(|id| id.uri()),
@@ -782,11 +820,13 @@ async fn fetch_saved_track_uris(
   spotify: &AuthCodePkceSpotify,
   token_cache_path: &Path,
   app: &Arc<Mutex<App>>,
+  generation: u64,
 ) -> anyhow::Result<(Vec<String>, bool)> {
   paginate_uris(
     spotify,
     token_cache_path,
     app,
+    generation,
     "me/tracks",
     |item: &SavedTrack| item.track.id.as_ref().map(|id| id.uri()),
   )
@@ -821,8 +861,11 @@ async fn finish_full_context_fetch(
   let reload = {
     let mut guard = app.lock().await;
     let player = guard.streaming_player.clone();
-    let observed_progress_ms = guard.song_progress_ms;
-    let start_playing = guard.native_shuffle_is_playing();
+    // Another player holds the sink with librespot paused behind it: the new
+    // order may be loaded, but must not start or take the other's position.
+    let drive = guard.native_context_should_drive();
+    let observed_progress_ms = if drive { guard.song_progress_ms } else { 0 };
+    let start_playing = drive && guard.native_shuffle_is_playing();
     // The session may be suspended behind a queued track; folding the context
     // in is fine, but reloading Spirc would hijack the sink from the queue.
     let queue_active = guard.queue_owns_playback() || guard.queue_suspended.is_some();
@@ -1069,6 +1112,124 @@ mod tests {
         "the session must be marked failed for the suspend fallback"
       );
     });
+  }
+
+  /// A shuffle session behind a decoded owner, and a network with no client.
+  #[cfg(feature = "streaming")]
+  fn session_under_a_decoded_owner(
+    order: &[&str],
+    index: usize,
+    generation: u64,
+  ) -> (Arc<Mutex<App>>, Network) {
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let mut app = App::new(
+      tx,
+      crate::core::user_config::UserConfig::new(),
+      Some(std::time::SystemTime::now()),
+    );
+    let mut original = uris(order);
+    original.sort();
+    app.native_spotify_shuffle = Some(crate::core::app::NativeSpotifyShuffleSession {
+      order: uris(order),
+      original,
+      index,
+      shuffled: true,
+      fetch_complete: true,
+      fetch_failed: false,
+      generation,
+      pending_reload: None,
+      pending_manual_skip: None,
+    });
+    app.claim_decoded_sink(crate::core::source::Source::Qobuz);
+    let app = Arc::new(Mutex::new(app));
+    let network = Network::new(
+      None,
+      crate::core::config::ClientConfig::new(),
+      &app,
+      std::path::PathBuf::new(),
+    );
+    (app, network)
+  }
+
+  #[cfg(feature = "streaming")]
+  #[tokio::test]
+  async fn a_decoded_owner_leaves_the_lap_reshuffle_alone() {
+    let (app, mut network) = session_under_a_decoded_owner(&["a", "b"], 1, 3);
+
+    network.reshuffle_native_shuffle_lap().await;
+
+    let guard = app.lock().await;
+    let session = guard.native_spotify_shuffle.as_ref().unwrap();
+    assert_eq!(session.index, 1);
+    assert!(session.pending_reload.is_none());
+  }
+
+  #[cfg(feature = "streaming")]
+  #[tokio::test]
+  async fn a_decoded_owner_refuses_the_shuffle_toggle() {
+    let (app, mut network) = session_under_a_decoded_owner(&["b", "a"], 0, 4);
+
+    network.toggle_native_shuffle_session(false).await;
+
+    let guard = app.lock().await;
+    let session = guard.native_spotify_shuffle.as_ref().unwrap();
+    assert!(session.shuffled);
+    assert_eq!(session.order, uris(&["b", "a"]));
+  }
+
+  /// No Spirc command follows, and `App::shuffle` already showed and persisted
+  /// the choice, so the session records it for the fetch completion to apply.
+  #[cfg(feature = "streaming")]
+  #[tokio::test]
+  async fn a_toggle_during_the_context_fetch_is_recorded_under_a_decoded_owner() {
+    let (app, mut network) = session_under_a_decoded_owner(&["b", "a"], 0, 5);
+    if let Some(session) = app.lock().await.native_spotify_shuffle.as_mut() {
+      session.fetch_complete = false;
+    }
+
+    network.toggle_native_shuffle_session(false).await;
+
+    let guard = app.lock().await;
+    let session = guard.native_spotify_shuffle.as_ref().unwrap();
+    assert!(!session.shuffled);
+    assert_eq!(session.order, uris(&["b", "a"]));
+    assert!(session.pending_reload.is_none());
+  }
+
+  #[cfg(feature = "streaming")]
+  #[tokio::test]
+  async fn a_decoded_owner_refuses_the_shuffled_resume() {
+    let (app, mut network) = session_under_a_decoded_owner(&["a", "b", "c"], 0, 7);
+
+    network.resume_native_shuffle_session(Some(2), 7).await;
+
+    let guard = app.lock().await;
+    let session = guard.native_spotify_shuffle.as_ref().unwrap();
+    assert_eq!(session.index, 0);
+    assert!(session.pending_reload.is_none());
+  }
+
+  #[cfg(feature = "streaming")]
+  #[tokio::test]
+  async fn a_decoded_owner_reload_drops_the_foreign_position() {
+    let (app, _network) = session_under_a_decoded_owner(&["seed"], 0, 9);
+    {
+      let mut guard = app.lock().await;
+      guard.song_progress_ms = 90_000;
+      if let Some(session) = guard.native_spotify_shuffle.as_mut() {
+        session.fetch_complete = false;
+      }
+    }
+
+    finish_full_context_fetch(&app, 9, Ok((uris(&["a", "seed", "b"]), false))).await;
+
+    let guard = app.lock().await;
+    let session = guard.native_spotify_shuffle.as_ref().unwrap();
+    assert_eq!(session.order.len(), 3);
+    assert_eq!(
+      session.pending_reload.map(|pending| pending.seek_ms),
+      Some(0)
+    );
   }
 
   #[test]
