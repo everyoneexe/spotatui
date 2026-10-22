@@ -37,6 +37,8 @@
 
 ### Fixed
 
+- **Saved Albums goes back to newest saved first on Default**: picking Default in the sort menu after another sort left the list in that order until the next refetch, because Default had no case in the sort. It now orders each page by when the album was saved, newest first, whatever the previous order was ([#817](https://github.com/LargeModGames/spotatui/issues/817)).
+
 - **`playback --repeat` now advances repeat modes** from Off to Context to Track instead of sending the current mode ([#816](https://github.com/LargeModGames/spotatui/issues/816)).
 
 - **Apple Music playlists show their real song counts** in the desktop app and the browser GUI: every playlist in Your Library, "All songs" included, said `0 songs`, because the count was never read from Music. It now is, one playlist at a time, which adds about 8 ms per playlist to loading the sidebar; a playlist whose count Music cannot read shows no number rather than a wrong 0 ([#891](https://github.com/LargeModGames/spotatui/issues/891)).
