@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Filter your playlists in the desktop app**: a filter box under the Your Library chips narrows the playlists of the active source, including the ones inside closed folders.
 - **Seven new visualizer styles**: `V` on the visualizer screen now also cycles through **Head Unit** (an early-2000s car-stereo display: a floor of spectrum strips in perspective under a wall of panels, drawn in Braille dots), **Analog VU** (two needle meters, left and right, with a peak lamp), **Winamp** (scanlined bars with falling peak caps and an oscilloscope strip), **Phosphor Scope** (a green CRT trace with fading phosphor trails and a measured Vpp and frequency), **Outrun** (a striped synthwave sun that pulses with the bass behind a spectrum skyline and a scrolling grid), **Rack EQ** (left and right LED ladders per band with falling peak LEDs) and **Cassette Deck** (turning reels that wind the tape across as the song plays, LED level bars and a tape counter). The choice is saved as `visualizer_style` in `config.yml`. The analyzer now also hands the terminal the last 50 ms of the waveform with each spectrum frame, which the scope styles draw.
 
 - **Gruvbox Cove theme preset**: Gruvbox dark on the standard bg0 background, with green as the main accent, aqua as the second colour, blue hints and yellow kept for warnings only. Pick it with `Alt-,` or set `preset: "Gruvbox Cove"` in `config.yml`.
