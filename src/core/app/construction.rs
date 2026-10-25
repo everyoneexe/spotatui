@@ -194,6 +194,16 @@ impl Default for App {
       last_dispatched_volume: None,
       #[cfg(feature = "streaming")]
       streaming_player: None,
+      #[cfg(feature = "soloist")]
+      soloist_link: None,
+      #[cfg(feature = "soloist")]
+      soloist_downloading: false,
+      #[cfg(feature = "soloist")]
+      librespot_standby: None,
+      soloist_pairing: false,
+      soloist_offer: false,
+      #[cfg(feature = "soloist")]
+      soloist_offered: false,
       decoded_repeat: RepeatMode::Off,
       decoded_shuffle: false,
       #[cfg(feature = "local-files")]

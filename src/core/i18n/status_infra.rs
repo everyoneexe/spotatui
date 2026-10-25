@@ -173,6 +173,42 @@ pub struct InfraStatusStrings {
   pub native_restored_paused: &'static str,
   pub native_skip_unavailable: &'static str,
   pub native_many_unavailable: &'static str,
+  pub soloist_path_unset: &'static str,
+  pub soloist_missing: &'static str,
+  pub soloist_not_executable: &'static str,
+  pub soloist_wrong_cpu: &'static str,
+  pub soloist_start_failed: &'static str,
+  pub soloist_key_missing: &'static str,
+  pub soloist_not_paired: &'static str,
+  pub soloist_offline: &'static str,
+  pub soloist_bad_key: &'static str,
+  pub soloist_expired: &'static str,
+  pub soloist_expires_soon: &'static str,
+  pub soloist_dir_in_use: &'static str,
+  pub soloist_keeps_exiting: &'static str,
+  pub soloist_no_websocket: &'static str,
+  pub soloist_restarting: &'static str,
+  pub soloist_restart_quality: &'static str,
+  pub soloist_streams: &'static str,
+  pub soloist_lossy_hint: &'static str,
+  pub soloist_dropped: &'static str,
+  pub soloist_engine_unavailable: &'static str,
+  pub soloist_queue_refused: &'static str,
+  pub soloist_paired: &'static str,
+  pub engine_switching_soloist: &'static str,
+  pub engine_switching_librespot: &'static str,
+  pub engine_next_launch: &'static str,
+  pub soloist_download_started: &'static str,
+  pub soloist_downloading: &'static str,
+  pub soloist_downloaded: &'static str,
+  pub soloist_downloaded_engine_off: &'static str,
+  pub soloist_downloaded_next_launch: &'static str,
+  pub soloist_download_failed: &'static str,
+  pub soloist_no_build: &'static str,
+  pub soloist_key_saved: &'static str,
+  pub soloist_key_restarting: &'static str,
+  pub soloist_key_env_wins: &'static str,
+  pub soloist_key_save_failed: &'static str,
   pub native_recovery_dropped: &'static str,
   pub native_recovery_failed: &'static str,
   pub native_lost_recovering: &'static str,
@@ -293,6 +329,45 @@ pub struct InfraStatusStrings {
   allow(dead_code)
 )]
 impl InfraStatusStrings {
+  pub fn soloist_missing(&self, path: &str) -> String {
+    super::format_template(self.soloist_missing, &[("path", path)])
+  }
+  pub fn soloist_not_executable(&self, path: &str) -> String {
+    super::format_template(self.soloist_not_executable, &[("path", path)])
+  }
+  pub fn soloist_start_failed(&self, error: &str) -> String {
+    super::format_template(self.soloist_start_failed, &[("error", error)])
+  }
+  pub fn soloist_downloading(&self, percent: u8) -> String {
+    super::format_template(
+      self.soloist_downloading,
+      &[("percent", &percent.to_string())],
+    )
+  }
+  pub fn soloist_download_failed(&self, error: &str) -> String {
+    super::format_template(self.soloist_download_failed, &[("error", error)])
+  }
+  pub fn soloist_key_save_failed(&self, error: &str) -> String {
+    super::format_template(self.soloist_key_save_failed, &[("error", error)])
+  }
+  pub fn soloist_key_missing(&self, path: &str) -> String {
+    super::format_template(self.soloist_key_missing, &[("path", path)])
+  }
+  pub fn soloist_expires_soon(&self, count: u32, unit: &str) -> String {
+    super::format_template(
+      self.soloist_expires_soon,
+      &[("count", &count.to_string()), ("unit", unit)],
+    )
+  }
+  pub fn soloist_streams(&self, quality: &str) -> String {
+    super::format_template(self.soloist_streams, &[("quality", quality)])
+  }
+  pub fn soloist_lossy_hint(&self, quality: &str) -> String {
+    super::format_template(self.soloist_lossy_hint, &[("quality", quality)])
+  }
+  pub fn soloist_dropped(&self, quality: &str) -> String {
+    super::format_template(self.soloist_dropped, &[("quality", quality)])
+  }
   pub fn sync_source_not_compiled(&self, source: &str, feature: &str) -> String {
     super::format_template(
       self.sync_source_not_compiled,
@@ -947,6 +1022,42 @@ pub const EN: InfraStatusStrings = InfraStatusStrings {
   native_restored_paused: "Native playback restored in paused state.",
   native_skip_unavailable: "Couldn't play this track natively (unavailable or blocked); skipping.",
   native_many_unavailable: "Several tracks in a row couldn't be played natively, so playback was stopped. They may be unavailable on your account or region. Press 'd' to switch to an official Spotify Connect device.",
+  soloist_path_unset: "Soloist is not installed. In Settings, Soloist Path, pick Download from Spotify.",
+  soloist_missing: "Soloist not found at {path}. In Settings, Soloist Path, pick Download from Spotify.",
+  soloist_not_executable: "Soloist at {path} is not executable: chmod +x {path}",
+  soloist_wrong_cpu: "This Soloist build does not run on this CPU. In Settings, Soloist Path, pick Download from Spotify.",
+  soloist_start_failed: "Soloist could not start: {error}",
+  soloist_key_missing: "Soloist needs an API key. In Settings, Soloist API Key, pick Get a key, then enter the key (it is saved in {path}).",
+  soloist_not_paired: "Pair spotatui: open Spotify on a computer on this network and pick 'spotatui'.",
+  soloist_offline: "Soloist cannot reach Spotify.",
+  soloist_bad_key: "Soloist rejected the API key. In Settings, Soloist API Key, enter a new one.",
+  soloist_expired: "Soloist build expired. In Settings, Soloist Path, pick Download from Spotify for a new one.",
+  soloist_expires_soon: "Soloist build expires in {count} {unit}: download a new one soon.",
+  soloist_dir_in_use: "Another Soloist uses spotatui's Soloist data folder.",
+  soloist_keeps_exiting: "Soloist keeps exiting; see the log.",
+  soloist_no_websocket: "Soloist started without its WebSocket.",
+  soloist_restarting: "Soloist stopped; restarting it.",
+  soloist_restart_quality: "Restarting Soloist to apply the audio quality.",
+  soloist_streams: "Soloist streams {quality}.",
+  soloist_lossy_hint: "Soloist streams {quality}. For lossless, pick spotatui in the Spotify mobile app's device menu and set Lossless.",
+  soloist_dropped: "Soloist dropped to {quality}.",
+  soloist_engine_unavailable: "This build has no Soloist engine; playing through librespot.",
+  soloist_queue_refused: "Queueing other sources behind Spotify needs the librespot engine.",
+  soloist_download_started: "Downloading Soloist from Spotify. By using Soloist, you accept the Spotify Terms and Conditions of Use.",
+  soloist_downloading: "Downloading Soloist from Spotify: {percent}%",
+  soloist_downloaded: "Soloist downloaded; starting it.",
+  soloist_downloaded_engine_off: "Soloist downloaded. Set Playback Engine to Soloist to play through it.",
+  soloist_downloaded_next_launch: "Soloist downloaded. spotatui uses it from the next launch.",
+  soloist_download_failed: "Soloist download failed: {error}",
+  soloist_no_build: "Spotify has no Soloist build for this system.",
+  soloist_paired: "Paired: spotatui plays through Soloist.",
+  engine_switching_soloist: "Switching the playback engine to Soloist.",
+  engine_switching_librespot: "Switching the playback engine to librespot.",
+  engine_next_launch: "The new playback engine starts at the next launch.",
+  soloist_key_saved: "Soloist API key saved.",
+  soloist_key_restarting: "Soloist API key saved; restarting Soloist with it.",
+  soloist_key_env_wins: "Soloist API key saved, but SPOTATUI_SOLOIST_API_KEY is set and wins over it.",
+  soloist_key_save_failed: "Could not save the Soloist API key: {error}",
   native_recovery_dropped: "Native recovery failed; playback request dropped: {error}",
   native_recovery_failed: "Native recovery failed: {error}",
   native_lost_recovering: "Native streaming connection lost; attempting recovery.",

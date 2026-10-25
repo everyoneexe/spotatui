@@ -190,6 +190,16 @@ pub(crate) struct SettingRow {
   name: String,
   description: String,
   value: SettingRowValue,
+  /// The row's one button; pressing it sends `PressSettingButton`.
+  button: Option<SettingRowButton>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(test, feature = "gui"), derive(ts_rs::TS))]
+pub(crate) struct SettingRowButton {
+  label: String,
+  /// Its work runs, so the button is off.
+  busy: bool,
 }
 
 #[derive(Serialize)]
@@ -239,6 +249,14 @@ const GUI_SETTINGS: &[(&str, &str)] = &[
   ("behavior.streaming_bitrate", "streaming"),
   ("behavior.streaming_audio_cache", "streaming"),
   ("behavior.streaming_autoplay", "streaming"),
+  #[cfg(feature = "soloist")]
+  ("behavior.playback_engine", "streaming"),
+  #[cfg(feature = "soloist")]
+  ("behavior.soloist_path", "streaming"),
+  #[cfg(feature = "soloist")]
+  ("behavior.soloist_api_key", "streaming"),
+  #[cfg(feature = "soloist")]
+  ("behavior.soloist_audio_quality", "streaming"),
   #[cfg(feature = "discord-rpc")]
   ("behavior.enable_discord_rpc", "integrations"),
   ("behavior.enable_global_song_count", "integrations"),
@@ -321,6 +339,29 @@ pub(crate) struct StatusPayload {
   message: Option<String>,
   is_error: bool,
   api_error: Option<String>,
+  /// The Soloist pairing guide to show in a modal.
+  soloist_pairing: Option<SoloistPairingGuide>,
+  /// The offer to set up Soloist to show in a modal.
+  soloist_offer: Option<SoloistOffer>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(test, feature = "gui"), derive(ts_rs::TS))]
+pub(crate) struct SoloistOffer {
+  title: &'static str,
+  body: &'static str,
+  steps: [&'static str; 3],
+  set_up: &'static str,
+  not_now: &'static str,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(test, feature = "gui"), derive(ts_rs::TS))]
+pub(crate) struct SoloistPairingGuide {
+  title: &'static str,
+  steps: Vec<String>,
+  waiting: &'static str,
+  close: &'static str,
 }
 
 #[derive(Serialize)]
@@ -843,6 +884,32 @@ fn channel_message(
         api_error: Some(app.api_error())
           .filter(|error| !error.is_empty())
           .map(str::to_string),
+        soloist_pairing: app.soloist_pairing_device().map(|device| {
+          let strings = &app.strings().popups;
+          SoloistPairingGuide {
+            title: strings.soloist_pair_title,
+            steps: vec![
+              strings.soloist_pair_open.to_string(),
+              strings.soloist_pair_pick(device),
+            ],
+            waiting: strings.soloist_pair_waiting,
+            close: strings.soloist_pair_close,
+          }
+        }),
+        soloist_offer: app.soloist_offer_shows().then(|| {
+          let strings = &app.strings().popups;
+          SoloistOffer {
+            title: strings.soloist_offer_title,
+            body: strings.soloist_offer_body,
+            steps: [
+              strings.soloist_offer_step_download,
+              strings.soloist_offer_step_key,
+              strings.soloist_offer_step_engine,
+            ],
+            set_up: strings.soloist_offer_set_up,
+            not_now: strings.soloist_offer_not_now,
+          }
+        }),
       },
     },
     DisplayDomain::Theme => ServerMessage::Theme {
@@ -1083,6 +1150,12 @@ fn settings_for(app: &App, phone: bool) -> Vec<SettingRow> {
           _ => item.description.clone(),
         },
         value,
+        button: app
+          .setting_button_label(id)
+          .map(|(label, busy)| SettingRowButton {
+            label: label.to_string(),
+            busy,
+          }),
       })
     })
     .collect()
@@ -1641,6 +1714,42 @@ mod tests {
   fn app() -> (App, Receiver<IoEvent>) {
     let (tx, rx) = std::sync::mpsc::channel();
     (App::new(tx, UserConfig::new(), Some(SystemTime::now())), rx)
+  }
+
+  #[cfg(feature = "soloist")]
+  #[test]
+  fn the_status_channel_carries_the_soloist_pairing_guide_until_the_page_closes_it() {
+    let (mut app, _rx) = app();
+    let before = app.display_revisions();
+    app.soloist_notice(crate::infra::soloist::Notice::NotPaired);
+    let status = pushed(&diff(&before, &app, Language::En), "status");
+    let pick = app
+      .strings()
+      .popups
+      .soloist_pair_pick(&app.user_config.behavior.streaming_device_name);
+    assert_eq!(status["payload"]["soloist_pairing"]["steps"][1], pick);
+
+    let closed = apply_from_page(&mut app, &action_frame(Action::DismissSoloistPairing));
+    assert!(pushed(&closed, "status")["payload"]["soloist_pairing"].is_null());
+  }
+
+  #[cfg(feature = "soloist")]
+  #[test]
+  fn the_status_channel_carries_the_soloist_offer_until_the_page_answers_it() {
+    let (mut app, _rx) = app();
+    let before = app.display_revisions();
+    app.offer_soloist_setup();
+    let status = pushed(&diff(&before, &app, Language::En), "status");
+    assert_eq!(
+      status["payload"]["soloist_offer"]["set_up"],
+      app.strings().popups.soloist_offer_set_up
+    );
+
+    let answered = apply_from_page(
+      &mut app,
+      &action_frame(Action::AnswerSoloistOffer { set_up: false }),
+    );
+    assert!(pushed(&answered, "status")["payload"]["soloist_offer"].is_null());
   }
 
   fn apply_from_page(app: &mut App, text: &str) -> Vec<ServerMessage> {

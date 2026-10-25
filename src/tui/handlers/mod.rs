@@ -115,6 +115,23 @@ pub fn handle_app(key: Key, app: &mut App) {
     return;
   }
 
+  if app.soloist_offer_shows() {
+    if key == Key::Enter {
+      app.apply(Action::AnswerSoloistOffer { set_up: true });
+    } else if matches!(key, Key::Esc | Key::Char('q')) || key == app.user_config.keys.back {
+      app.apply(Action::AnswerSoloistOffer { set_up: false });
+    }
+    return;
+  }
+
+  // The Soloist pairing guide is a modal too, under the plugin popup.
+  if app.soloist_pairing_device().is_some() {
+    if matches!(key, Key::Esc | Key::Enter | Key::Char('q')) || key == app.user_config.keys.back {
+      app.apply(Action::DismissSoloistPairing);
+    }
+    return;
+  }
+
   // Help filtering is an inline modal input. Give it priority over global
   // bindings so queries can contain keys such as d, n, p, q, or ?.
   if app.get_current_route().active_block == ActiveBlock::HelpMenu
@@ -131,7 +148,8 @@ pub fn handle_app(key: Key, app: &mut App) {
     && (app.view.settings_unsaved_prompt_visible
       || app.view.settings_edit_mode
       || app.view.settings_filter_editing
-      || key == app.user_config.keys.search)
+      || key == app.user_config.keys.search
+      || (key == settings::BUTTON_KEY && settings::selected_row_has_button(app)))
   {
     settings::handler(key, app);
     return;

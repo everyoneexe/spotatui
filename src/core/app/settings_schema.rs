@@ -110,6 +110,10 @@ pub(crate) fn setting_requirement(id: &str) -> Requirement {
     | "behavior.streaming_bitrate"
     | "behavior.streaming_audio_cache"
     | "behavior.streaming_autoplay"
+    | "behavior.playback_engine"
+    | "behavior.soloist_path"
+    | "behavior.soloist_api_key"
+    | "behavior.soloist_audio_quality"
     | "keys.jump_to_album"
     | "keys.jump_to_artist_album"
     | "keys.jump_to_context"
@@ -123,6 +127,59 @@ pub(crate) fn setting_requirement(id: &str) -> Requirement {
     ]),
     "keys.search" => Requirement::Capability(Capability::Search),
     _ => Requirement::None,
+  }
+}
+
+/// The one button a settings row can carry, beside its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingButton {
+  DownloadSoloist,
+  GetSoloistKey,
+}
+
+pub(crate) fn setting_button(id: &str) -> Option<SettingButton> {
+  match id {
+    "behavior.soloist_path" if cfg!(feature = "soloist") => Some(SettingButton::DownloadSoloist),
+    "behavior.soloist_api_key" if cfg!(feature = "soloist") => Some(SettingButton::GetSoloistKey),
+    _ => None,
+  }
+}
+
+impl App {
+  /// A row's button label, and whether its work runs (the button is then off).
+  pub(crate) fn setting_button_label(&self, id: &str) -> Option<(&'static str, bool)> {
+    let strings = &self.strings().settings;
+    setting_button(id).map(|button| match button {
+      SettingButton::DownloadSoloist if self.soloist_download_runs() => {
+        (strings.soloist_downloading_button, true)
+      }
+      SettingButton::DownloadSoloist => (strings.soloist_download_button, false),
+      SettingButton::GetSoloistKey => (strings.soloist_get_key_button, false),
+    })
+  }
+
+  pub(crate) fn press_setting_button(&mut self, id: &str) {
+    match setting_button(id) {
+      Some(SettingButton::DownloadSoloist) => {
+        #[cfg(feature = "soloist")]
+        self.download_soloist();
+      }
+      Some(SettingButton::GetSoloistKey) => {
+        self.open_external_url("https://developer.spotify.com/dashboard/soloist");
+      }
+      None => {}
+    }
+  }
+
+  fn soloist_download_runs(&self) -> bool {
+    #[cfg(feature = "soloist")]
+    {
+      self.soloist_downloading
+    }
+    #[cfg(not(feature = "soloist"))]
+    {
+      false
+    }
   }
 }
 
@@ -482,6 +539,67 @@ impl App {
         name: strings.behavior_streaming_autoplay_name.to_string(),
         description: strings.behavior_streaming_autoplay_description.to_string(),
         value: SettingValue::Bool(self.user_config.behavior.streaming_autoplay),
+      },
+      // Soloist has no build for Intel Macs.
+      #[cfg(all(
+        feature = "soloist",
+        not(all(target_os = "macos", target_arch = "x86_64"))
+      ))]
+      SettingItem {
+        id: "behavior.playback_engine".to_string(),
+        name: strings.behavior_playback_engine_name.to_string(),
+        description: strings.behavior_playback_engine_description.to_string(),
+        value: SettingValue::Cycle(
+          self.user_config.behavior.playback_engine.name().to_string(),
+          crate::core::user_config::PlaybackEngine::options(),
+        ),
+      },
+      #[cfg(all(
+        feature = "soloist",
+        not(all(target_os = "macos", target_arch = "x86_64"))
+      ))]
+      SettingItem {
+        id: "behavior.soloist_path".to_string(),
+        name: strings.behavior_soloist_path_name.to_string(),
+        description: strings.behavior_soloist_path_description.to_string(),
+        value: SettingValue::String(
+          self
+            .user_config
+            .behavior
+            .soloist_path
+            .clone()
+            .unwrap_or_default(),
+        ),
+      },
+      #[cfg(all(
+        feature = "soloist",
+        not(all(target_os = "macos", target_arch = "x86_64"))
+      ))]
+      SettingItem {
+        id: "behavior.soloist_api_key".to_string(),
+        name: strings.behavior_soloist_api_key_name.to_string(),
+        description: strings.behavior_soloist_api_key_description.to_string(),
+        value: SettingValue::Secret(self.saved_soloist_key()),
+      },
+      #[cfg(all(
+        feature = "soloist",
+        not(all(target_os = "macos", target_arch = "x86_64"))
+      ))]
+      SettingItem {
+        id: "behavior.soloist_audio_quality".to_string(),
+        name: strings.behavior_soloist_audio_quality_name.to_string(),
+        description: strings
+          .behavior_soloist_audio_quality_description
+          .to_string(),
+        value: SettingValue::Cycle(
+          self
+            .user_config
+            .behavior
+            .soloist_audio_quality
+            .name()
+            .to_string(),
+          crate::core::user_config::SoloistQuality::options(),
+        ),
       },
       SettingItem {
         id: "behavior.startup_behavior".to_string(),

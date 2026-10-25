@@ -54,6 +54,8 @@ import { Room } from "./Room";
 import { Search } from "./Search";
 import { Session } from "./Session";
 import { Settings } from "./Settings";
+import { SoloistOfferDialog } from "./SoloistOfferDialog";
+import { SoloistPairingDialog } from "./SoloistPairingDialog";
 import { Stats } from "./Stats";
 import { Toast } from "./Toast";
 import { TopBar } from "./TopBar";
@@ -516,13 +518,16 @@ export function Shell({
   ]);
 
   // A switch or a closed overlay hands the keyboard to the page; the first render leaves focus alone.
-  const shown = useRef({ page, overlay });
+  // The Soloist offer opens Settings under itself, so it holds the focus until it closes.
+  const covered =
+    overlay !== null || channels.status?.payload.soloist_offer != null;
+  const shown = useRef({ page, covered });
   useEffect(() => {
     const before = shown.current;
-    shown.current = { page, overlay };
-    if (overlay || (before.page === page && !before.overlay)) return;
+    shown.current = { page, covered };
+    if (covered || (before.page === page && !before.covered)) return;
     focusScreen(page);
-  }, [page, overlay]);
+  }, [page, covered]);
 
   // A closed Room also hands the keyboard back to the page.
   const roomShown = useRef(room);
@@ -718,6 +723,15 @@ export function Shell({
         s={s}
         active={channels.announcement?.payload.active ?? null}
         send={send}
+      />
+      <SoloistPairingDialog
+        guide={channels.status?.payload.soloist_pairing ?? null}
+        send={send}
+      />
+      <SoloistOfferDialog
+        offer={channels.status?.payload.soloist_offer ?? null}
+        send={send}
+        onSetUp={() => open({ page: "settings" })}
       />
     </TrackActionsContext.Provider>
   );

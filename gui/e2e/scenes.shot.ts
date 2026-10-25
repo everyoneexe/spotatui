@@ -177,11 +177,71 @@ test("status error", async ({ page }) => {
         message: null,
         is_error: false,
         api_error: "Spotify refused the request: 403 Forbidden",
+        soloist_pairing: null,
+        soloist_offer: null,
       },
     },
   ]);
   await page.getByRole("alert").waitFor();
   await shot(page, "status-error");
+});
+
+test("soloist pairing", async ({ page }) => {
+  await openWith(page, [
+    ...playing,
+    ...library,
+    {
+      kind: "status",
+      rev: 1,
+      payload: {
+        message: null,
+        is_error: false,
+        api_error: null,
+        soloist_pairing: {
+          title: "Pair spotatui with Spotify",
+          steps: [
+            "1. Open Spotify on a computer on this network.",
+            "2. In its device menu, pick 'spotatui'.",
+          ],
+          waiting: "Waiting for Spotify…",
+          close: "Close",
+        },
+        soloist_offer: null,
+      },
+    },
+  ]);
+  await page.getByRole("dialog").waitFor();
+  await shot(page, "soloist-pairing");
+});
+
+test("soloist offer", async ({ page }) => {
+  await openWith(page, [
+    ...playing,
+    ...library,
+    {
+      kind: "status",
+      rev: 1,
+      payload: {
+        message: null,
+        is_error: false,
+        api_error: null,
+        soloist_pairing: null,
+        soloist_offer: {
+          title: "Play through Soloist?",
+          body: "Spotify refuses librespot the audio keys for these tracks, as it does for some accounts. Soloist, Spotify's own player, can play them. It needs Premium. In Settings:",
+          steps: [
+            "1. Soloist Path: Download from Spotify.",
+            "2. Soloist API Key: Get a key, then enter it.",
+            "3. Playback Engine: Soloist.",
+          ],
+          set_up: "Set up Soloist",
+          not_now: "Not now",
+        },
+      },
+    },
+  ]);
+  await page.getByRole("dialog").waitFor();
+  await shot(page, "soloist-offer");
 });
 
 test("queue panel", async ({ page }) => {

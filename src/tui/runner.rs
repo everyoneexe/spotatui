@@ -131,6 +131,9 @@ fn dispatch_key(key: Key, app: &mut App) -> bool {
       }
       _ => {}
     }
+  } else if app.soloist_offer_shows() || app.soloist_pairing_device().is_some() {
+    // A Soloist modal sits over every screen, an open input included.
+    handlers::handle_app(key, app);
   } else if current_active_block == ActiveBlock::Input {
     handlers::input_handler(key, app);
   } else if key_reaches_handlers_before_back(app, key) {
@@ -512,6 +515,20 @@ mod tests {
 
     assert!(dispatch_key(Key::Char('y'), &mut app));
   }
+
+  #[cfg(feature = "soloist")]
+  #[test]
+  fn the_back_key_closes_a_soloist_modal_over_an_input_instead_of_the_screen() {
+    let mut app = app();
+    app.push_navigation_stack(RouteId::Search, ActiveBlock::Input);
+    app.soloist_notice(crate::infra::soloist::Notice::NotPaired);
+    assert!(app.soloist_pairing_device().is_some());
+
+    assert!(!dispatch_key(app.user_config.keys.back, &mut app));
+
+    assert_eq!(app.soloist_pairing_device(), None);
+    assert_eq!(app.get_current_route().active_block, ActiveBlock::Input);
+  }
 }
 
 /// The terminal state `start_ui` leaves for the exit path; fields drop in the order the old locals did.
@@ -685,6 +702,8 @@ pub async fn start_ui(
           _ => ui::draw_main_layout(f, &app),
         }
 
+        ui::draw_soloist_pairing(f, &app);
+        ui::draw_soloist_offer(f, &app);
         // Plugin popup overlays every screen.
         ui::draw_plugin_popup(f, &app);
 

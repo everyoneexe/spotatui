@@ -111,6 +111,8 @@ impl App {
 
     let mut settings_error: Option<String> = None;
     let sources_before = self.source_settings();
+    #[cfg(feature = "soloist")]
+    let engine_before = self.user_config.behavior.playback_engine;
     // What is actually on screen right now, put back by the reconciliation at
     // the end so an adaptive-theme fade continues from it.
     let theme_before = self.user_config.theme;
@@ -325,6 +327,26 @@ impl App {
         "behavior.streaming_autoplay" => {
           if let SettingValue::Bool(v) = &setting.value {
             self.user_config.behavior.streaming_autoplay = *v;
+          }
+        }
+        #[cfg(feature = "soloist")]
+        "behavior.playback_engine" => {
+          if let SettingValue::Cycle(v, _) = &setting.value {
+            self.user_config.behavior.playback_engine =
+              crate::core::user_config::PlaybackEngine::from_name(v);
+          }
+        }
+        #[cfg(feature = "soloist")]
+        "behavior.soloist_path" => {
+          if let SettingValue::String(v) = &setting.value {
+            self.user_config.behavior.soloist_path = trimmed(v);
+          }
+        }
+        #[cfg(feature = "soloist")]
+        "behavior.soloist_audio_quality" => {
+          if let SettingValue::Cycle(v, _) = &setting.value {
+            self.user_config.behavior.soloist_audio_quality =
+              crate::core::user_config::SoloistQuality::from_name(v);
           }
         }
         "behavior.enable_announcements" => {
@@ -957,6 +979,10 @@ impl App {
         _ => {}
       }
     }
+    #[cfg(feature = "soloist")]
+    if !self.save_soloist_key_row() && self.user_config.behavior.playback_engine != engine_before {
+      self.playback_engine_changed();
+    }
     self.refresh_language();
     self.refresh_settings_labels();
     #[cfg(feature = "art-decode")]
@@ -1038,7 +1064,12 @@ impl App {
 }
 
 /// A text setting without its padding; empty means unset.
-#[cfg(any(feature = "subsonic", feature = "local-files", feature = "youtube"))]
+#[cfg(any(
+  feature = "subsonic",
+  feature = "local-files",
+  feature = "youtube",
+  feature = "soloist"
+))]
 fn trimmed(value: &str) -> Option<String> {
   Some(value.trim().to_string()).filter(|value| !value.is_empty())
 }
@@ -1047,15 +1078,6 @@ fn trimmed(value: &str) -> Option<String> {
 mod tests {
   use super::*;
   use crate::core::app::test_support::*;
-
-  fn setting(id: &str, value: SettingValue) -> SettingItem {
-    SettingItem {
-      id: id.to_string(),
-      name: String::new(),
-      description: String::new(),
-      value,
-    }
-  }
 
   #[test]
   fn saving_a_theme_preset_bumps_the_theme_revision_and_an_unrelated_save_does_not() {

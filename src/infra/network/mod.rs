@@ -349,6 +349,13 @@ pub enum IoEvent {
   /// auth.
   #[cfg(feature = "art-decode")]
   FetchCoverArt(crate::core::art::CoverArtRequest),
+  /// Download the official Soloist build for this system from Spotify (the
+  /// Soloist Path row's button). Needs no Spotify login.
+  #[cfg(feature = "soloist")]
+  DownloadSoloist,
+  /// Stop Soloist, then start the engine the settings name (a new engine or API key).
+  #[cfg(feature = "soloist")]
+  ApplyPlaybackEngine,
   /// A DJ tool call that needs the live Spotify client, plus the channel to
   /// answer on.
   ///
@@ -454,6 +461,23 @@ struct Deferred {
   owner: PlaybackOwner,
 }
 
+/// The transports a Soloist target serves over its WebSocket, with no Spotify request.
+#[cfg(feature = "soloist")]
+fn soloist_ws_transport(io_event: &IoEvent) -> bool {
+  matches!(
+    io_event,
+    IoEvent::PausePlayback
+      | IoEvent::StartPlayback(None, None, None)
+      | IoEvent::NextTrack
+      | IoEvent::PreviousTrack
+      | IoEvent::ForcePreviousTrack
+      | IoEvent::Seek(_)
+      | IoEvent::ChangeVolume(_)
+      | IoEvent::Shuffle(_)
+      | IoEvent::Repeat(_)
+  )
+}
+
 /// Whether `queued`, the owner at deferral time, still holds the sink under
 /// `now`. librespot and an external device are one Spotify owner: a poll can
 /// flip between them inside one window.
@@ -500,6 +524,13 @@ impl Network {
   fn event_bypasses_spotify_auth(io_event: &IoEvent) -> bool {
     #[cfg(feature = "art-decode")]
     if matches!(io_event, IoEvent::FetchCoverArt(_)) {
+      return true;
+    }
+    #[cfg(feature = "soloist")]
+    if matches!(
+      io_event,
+      IoEvent::DownloadSoloist | IoEvent::ApplyPlaybackEngine
+    ) {
       return true;
     }
     #[cfg(feature = "streaming")]
@@ -588,6 +619,13 @@ impl Network {
     }
     #[cfg(feature = "art-decode")]
     if matches!(io_event, IoEvent::FetchCoverArt(_)) {
+      return true;
+    }
+    #[cfg(feature = "soloist")]
+    if matches!(
+      io_event,
+      IoEvent::DownloadSoloist | IoEvent::ApplyPlaybackEngine
+    ) {
       return true;
     }
     #[cfg(feature = "ai-dj")]
@@ -1000,6 +1038,14 @@ impl Network {
       IoEvent::FetchCoverArt(request) => {
         self.fetch_cover_art(request).await;
       }
+      #[cfg(feature = "soloist")]
+      IoEvent::DownloadSoloist => {
+        crate::infra::soloist::download::run(std::sync::Arc::clone(&self.app)).await;
+      }
+      #[cfg(feature = "soloist")]
+      IoEvent::ApplyPlaybackEngine => {
+        crate::infra::soloist::startup::apply_engine(std::sync::Arc::clone(&self.app)).await;
+      }
       #[cfg(any(feature = "mcp-server", feature = "ai-dj"))]
       IoEvent::DjToolCall(payload) => {
         let (call, responder) = *payload;
@@ -1180,6 +1226,11 @@ impl Network {
     let Some(left) = left else {
       return Some(io_event);
     };
+    // These go to Soloist over its loopback WebSocket, never to Spotify's servers.
+    #[cfg(feature = "soloist")]
+    if soloist_ws_transport(&io_event) && self.app.lock().await.soloist_is_target() {
+      return Some(io_event);
+    }
     if !self.defers_rate_limited {
       tokio::time::sleep(left).await;
       return Some(io_event);
