@@ -211,6 +211,7 @@ pub struct ViewState {
   pub artist_albums_scroll_offset: Cell<usize>,
   pub artist_related_artists_scroll_offset: Cell<usize>,
   pub playlist_sync_scroll_offset: Cell<usize>,
+  pub settings_scroll_offset: Cell<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

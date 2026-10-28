@@ -11,6 +11,7 @@ use ratatui::{
   widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs},
   Frame,
 };
+use std::cell::Cell;
 
 const UNSAVED_PROMPT_WIDTH: u16 = 58;
 const UNSAVED_PROMPT_HEIGHT: u16 = 9;
@@ -121,7 +122,7 @@ pub fn draw_settings(f: &mut Frame<'_>, app: &App) {
   let [tabs_area, list_area, help_area] = settings_layout(f.area());
 
   draw_category_tabs(f, app, tabs_area);
-  draw_settings_list(f, app, list_area);
+  draw_settings_list(f, app, list_area, &app.view.settings_scroll_offset);
   draw_settings_help(f, app, help_area);
 
   if app.view.settings_unsaved_prompt_visible {
@@ -154,7 +155,7 @@ fn draw_category_tabs(f: &mut Frame<'_>, app: &App, area: Rect) {
   f.render_widget(tabs, area);
 }
 
-fn draw_settings_list(f: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_settings_list(f: &mut Frame<'_>, app: &App, area: Rect, scroll_offset: &Cell<usize>) {
   let visible = filtered_settings(app);
   let items: Vec<ListItem> = visible
     .iter()
@@ -313,6 +314,9 @@ fn draw_settings_list(f: &mut Frame<'_>, app: &App, area: Rect) {
     items
   };
 
+  let visible_rows = area.height.saturating_sub(2) as usize;
+  let max_offset = items.len().saturating_sub(visible_rows);
+
   let list = List::new(items)
     .block(
       Block::default()
@@ -335,6 +339,10 @@ fn draw_settings_list(f: &mut Frame<'_>, app: &App, area: Rect) {
     );
 
   let mut state = ListState::default();
+  let offset = scroll_offset.get().min(max_offset);
+
+  *state.offset_mut() = offset;
+
   // The list renders the filtered view, so the highlight is a position in it,
   // not the index into `settings_items` the rest of the screen works with.
   state.select(
@@ -344,6 +352,7 @@ fn draw_settings_list(f: &mut Frame<'_>, app: &App, area: Rect) {
   );
 
   f.render_stateful_widget(list, area, &mut state);
+  scroll_offset.set(state.offset());
 }
 
 fn format_terminal_input_caps(app: &App) -> String {
@@ -607,6 +616,45 @@ mod tests {
     assert!(selected.contains("[o] Download from Spotify"), "{selected}");
     app.view.settings_selected_index = 1;
     assert!(!rendered(&app).contains("Download from Spotify"));
+  }
+
+  #[test]
+  fn settings_scroll_offset_survives_frames_and_clamps_when_the_list_shrinks() {
+    let mut app = App::default();
+    app.settings_items = (0..10)
+      .map(|index| SettingItem {
+        id: format!("behavior.test_{index}"),
+        name: format!("Setting {index}"),
+        description: String::new(),
+        value: SettingValue::Number(index),
+      })
+      .collect();
+    // Row 6 is already visible in the five-row viewport at offset 4, so
+    // selecting it must not make the next frame recalculate the offset.
+    app.view.settings_selected_index = 6;
+    app.view.settings_scroll_offset.set(4);
+
+    let mut terminal = Terminal::new(TestBackend::new(WIDTH, 7)).unwrap();
+    for frame in 1..=2 {
+      terminal
+        .draw(|f| {
+          draw_settings_list(f, &app, f.area(), &app.view.settings_scroll_offset);
+        })
+        .unwrap();
+      assert_eq!(
+        app.view.settings_scroll_offset.get(),
+        4,
+        "offset changed on frame {frame}"
+      );
+    }
+
+    app.settings_items.truncate(7);
+    terminal
+      .draw(|f| {
+        draw_settings_list(f, &app, f.area(), &app.view.settings_scroll_offset);
+      })
+      .unwrap();
+    assert_eq!(app.view.settings_scroll_offset.get(), 2);
   }
 
   fn rendered(app: &App) -> String {
