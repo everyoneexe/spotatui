@@ -65,6 +65,9 @@ impl App {
   }
 
   pub fn toggle_playback(&mut self) {
+    if self.relay_party_toggle() {
+      return;
+    }
     if self.apple_music_owns_playback() {
       self.toggle_apple_music();
       return;
@@ -87,6 +90,10 @@ impl App {
     // the stale pre-router value and dispatching the same action twice.
     if self.queue_now_is_spotify() {
       let is_playing = self.native_is_playing.unwrap_or(false);
+      #[cfg(feature = "streaming")]
+      if !is_playing && self.refuse_resume_after_unavailable_halt() {
+        return;
+      }
       self.native_is_playing = Some(!is_playing);
       if is_playing {
         self.dispatch(IoEvent::PausePlayback);
@@ -194,7 +201,7 @@ impl App {
         );
         if is_playing {
           self.pause_native_playback();
-        } else {
+        } else if !self.refuse_resume_after_unavailable_halt() {
           self.arm_native_play_intent();
           player.play();
           // Update UI state immediately
@@ -233,6 +240,9 @@ impl App {
   }
 
   pub fn previous_track(&mut self) {
+    if self.relay_party_transport(PlaybackAction::PrevTrack) {
+      return;
+    }
     if self.apple_music_owns_playback() {
       if self.apple_music_refuses_while_switching() {
         return;
@@ -299,14 +309,7 @@ impl App {
           player.prev();
           // Reset progress immediately for UI feedback
           self.song_progress_ms = 0;
-          // librespot can occasionally land in a paused state after a skip.
-          // Schedule a short delayed resume to avoid racing the track transition.
-          let player = std::sync::Arc::clone(player);
-          std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            player.activate();
-            player.play();
-          });
+          player.resume_after_skip(false);
           return;
         }
       }
@@ -317,6 +320,9 @@ impl App {
   }
 
   pub fn force_previous_track(&mut self) {
+    if self.relay_party_transport(PlaybackAction::ForcePrevTrack) {
+      return;
+    }
     if self.apple_music_owns_playback() {
       if self.apple_music_refuses_while_switching() {
         return;
@@ -359,14 +365,7 @@ impl App {
         // since the position is now back at 0.
         player.prev();
         self.song_progress_ms = 0;
-        let player = std::sync::Arc::clone(player);
-        std::thread::spawn(move || {
-          std::thread::sleep(std::time::Duration::from_millis(500));
-          player.prev();
-          std::thread::sleep(std::time::Duration::from_millis(300));
-          player.activate();
-          player.play();
-        });
+        player.resume_after_skip(true);
         return;
       }
     }
@@ -376,6 +375,9 @@ impl App {
   }
 
   pub fn next_track(&mut self) {
+    if self.relay_party_transport(PlaybackAction::NextTrack) {
+      return;
+    }
     if self.apple_music_owns_playback() {
       if self.apple_music_refuses_while_switching() {
         return;
@@ -445,14 +447,7 @@ impl App {
         player.next();
         // Reset progress immediately for UI feedback
         self.song_progress_ms = 0;
-        // librespot can occasionally land in a paused state after a skip.
-        // Schedule a short delayed resume to avoid racing the track transition.
-        let player = std::sync::Arc::clone(player);
-        std::thread::spawn(move || {
-          std::thread::sleep(std::time::Duration::from_millis(300));
-          player.activate();
-          player.play();
-        });
+        player.resume_after_skip(false);
         return;
       }
     }

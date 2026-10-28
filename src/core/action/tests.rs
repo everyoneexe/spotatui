@@ -1281,6 +1281,27 @@ fn load_more_saved_tracks_fetches_the_missing_continuous_page() {
 }
 
 #[test]
+fn load_more_saved_artists_fetches_the_next_cursor_page() {
+  let (mut app, rx) = app_with_channel();
+  app
+    .library_mut()
+    .saved_artists
+    .add_pages(crate::core::pagination::CursorPaged {
+      items: vec![crate::core::plugin_api::ArtistInfo::default()],
+      next: Some("next".to_string()),
+      cursor_after: Some("a2".to_string()),
+      ..Default::default()
+    });
+
+  app.apply(Action::LoadMore(ListTarget::SavedArtists));
+
+  assert!(matches!(
+    rx.try_recv(),
+    Ok(IoEvent::GetFollowedArtists(Some(cursor))) if cursor == "a2"
+  ));
+}
+
+#[test]
 fn load_more_saved_tracks_is_a_noop_at_the_end_of_the_list() {
   let (mut app, rx) = app_with_channel();
   let page = track_page(0, &["0000000000000000000001"], false);
@@ -2533,6 +2554,7 @@ fn toggle_party_control_mode_flips_the_session_and_tells_the_relay() {
     guests: Vec::new(),
     control_mode: ControlMode::HostOnly,
     host_name: "Host".to_string(),
+    host_state_at: None,
   }));
   let before = app.display_revisions().get(DisplayDomain::Party);
 

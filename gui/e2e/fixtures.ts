@@ -126,6 +126,22 @@ export const onboarding: ServerMessage = {
   },
 };
 
+export const onboardingConfirm: ServerMessage = {
+  kind: "onboarding",
+  payload: {
+    transcript: "Welcome to spotatui.\n",
+    pending: {
+      seq: 2,
+      ask: {
+        kind: "Confirm",
+        title: "Global Song Counter",
+        body: "spotatui can contribute to a global counter showing total songs played by all users worldwide.\n\nPrivacy: This feature is completely anonymous.\n• No personal information is collected\n• No song names, artists, or listening history\n• Only a simple increment once a song has played for 30 seconds",
+        question: "Would you like to participate?",
+      },
+    },
+  },
+};
+
 function track(
   name: string,
   seconds: number,
@@ -286,6 +302,7 @@ export const library: ServerMessage[] = [
       saved_albums: [],
       saved_albums_has_more: false,
       followed_artists: [],
+      followed_artists_has_more: false,
       saved_shows: [],
       saved_shows_has_more: false,
       saved_show_ids: [],
@@ -336,6 +353,7 @@ export const libraryUnavailable: ServerMessage[] = [
       saved_albums: [],
       saved_albums_has_more: false,
       followed_artists: [],
+      followed_artists_has_more: false,
       saved_shows: [],
       saved_shows_has_more: false,
       saved_show_ids: [],

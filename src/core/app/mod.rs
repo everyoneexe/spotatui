@@ -16,7 +16,9 @@ use crate::core::user_config::{
   VisualizerStyle,
 };
 use crate::infra::history::{RecapPeriod, StatsData, StreakSummary};
-use crate::infra::network::sync::{ControlMode, PartySession, PartyStatus};
+use crate::infra::network::sync::{
+  ControlMode, PartyRole, PartySession, PartyStatus, PlaybackAction,
+};
 use crate::infra::network::IoEvent;
 #[cfg(feature = "queue")]
 use crate::infra::queue::QueueNowPlaying;
@@ -99,6 +101,8 @@ mod display_revisions;
 mod dj;
 mod friends;
 mod help;
+#[cfg(not(target_os = "android"))]
+mod keep_awake;
 mod keybindings;
 mod layout;
 mod library;
@@ -447,7 +451,7 @@ pub struct App {
   native_shuffle_generation: u64,
   /// Prevent idle/sleep during playback
   #[cfg(not(target_os = "android"))]
-  keepawake: Option<keepawake::KeepAwake>,
+  keepawake: keep_awake::KeepAwake,
   /// Timestamp of the last native device activation
   #[allow(dead_code)]
   pub last_device_activation: Option<Instant>,
@@ -457,6 +461,9 @@ pub struct App {
   /// Another device took playback over; the idle poll must not reclaim it (#693)
   #[cfg(feature = "streaming")]
   native_handed_off: bool,
+  /// The unavailable-track guard stopped librespot; only a new load plays again
+  #[cfg(feature = "streaming")]
+  native_unavailable_halt: bool,
   /// A bare resume already tried to pull the handed-off playback back
   #[cfg(feature = "streaming")]
   native_handoff_resume_tried: bool,

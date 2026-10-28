@@ -1097,6 +1097,18 @@ async fn handle_mpris_events(
       continue;
     }
 
+    let play_key = match &event {
+      MprisEvent::PlayPause => Some(None),
+      MprisEvent::Play => Some(Some(true)),
+      MprisEvent::Pause => Some(Some(false)),
+      _ => None,
+    };
+    if let Some(play) = play_key {
+      if app.lock().await.relay_party_play_key(play) {
+        continue;
+      }
+    }
+
     // Dynamically fetch the current active player so MPRIS can target the correct player
     // and not the stale player. The old player can be stale on, e.g., native streaming recovery.
     // While another Spotify device plays, the idle local player would swallow the command
@@ -1455,6 +1467,18 @@ async fn handle_macos_media_events(
       continue;
     }
 
+    let play_key = match &event {
+      MacMediaEvent::PlayPause => Some(None),
+      MacMediaEvent::Play => Some(Some(true)),
+      MacMediaEvent::Pause => Some(Some(false)),
+      _ => None,
+    };
+    if let Some(play) = play_key {
+      if app.lock().await.relay_party_play_key(play) {
+        continue;
+      }
+    }
+
     if route_remote_spotify_macos_event(&event, &mut *app.lock().await, &shared_is_playing) {
       continue;
     }
@@ -1633,6 +1657,17 @@ async fn handle_windows_media_events(
     #[cfg(feature = "audio-decode")]
     if route_decoded_windows_event(&event, &app).await {
       continue;
+    }
+
+    let play_key = match &event {
+      WindowsMediaEvent::Play => Some(Some(true)),
+      WindowsMediaEvent::Pause => Some(Some(false)),
+      _ => None,
+    };
+    if let Some(play) = play_key {
+      if app.lock().await.relay_party_play_key(play) {
+        continue;
+      }
     }
 
     let player_opt = player::active_streaming_player(&app).await;
