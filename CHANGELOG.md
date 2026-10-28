@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Search the add-to-playlist picker**: press `/` (the `search` key) in the picker that `w` and `W` open and type part of a playlist name. The list narrows to the matching playlists you can add to, including the ones inside folders. `Enter` keeps the search and a second `Enter` adds the track, `Esc` clears the search, and a second `Esc` closes the picker ([#924](https://github.com/LargeModGames/spotatui/issues/924)).
+
 ### Fixed
 
 - **Smoother scrolling in terminal Settings**: Fixed an issue where navigating the Settings list caused the screen to jump erratically. The view now stays stable, scrolling only when your cursor reaches the top or bottom of the box.
