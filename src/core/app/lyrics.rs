@@ -70,6 +70,10 @@ impl LyricsViewState {
     self.scroll_pos = self.anim_from + (self.anim_target - self.anim_from) * eased;
   }
 
+  pub fn is_easing(&self) -> bool {
+    self.anim_progress < 1.0
+  }
+
   /// Jump straight to `target` with no animation (used while the view is not
   /// visible so it opens already in position).
   pub fn snap_to(&mut self, target: f64) {
@@ -149,7 +153,7 @@ impl App {
     }
     let active = active_lyric_index(lyrics, self.lyric_progress_ms());
     let target = self.view.lyrics_view.manual_index.unwrap_or(active) as f64;
-    if self.get_current_route().id == RouteId::LyricsView {
+    if self.get_current_route().id == RouteId::LyricsView || self.pane_open(Pane::Lyrics) {
       self.view.lyrics_view.ease_toward(target, elapsed);
     } else {
       self.view.lyrics_view.snap_to(target);
